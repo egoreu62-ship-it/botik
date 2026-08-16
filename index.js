@@ -13,7 +13,8 @@ const {
 
 const client = new Client({
     intents: [
-        GatewayIntentBits.Guilds
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages
     ]
 });
 
@@ -85,3 +86,17 @@ client.once('ready', async () => {
 });
 
 client.login(TOKEN);
+
+// ==== Ответ на упоминание бота ====
+const MENTION_REPLIES = [
+    'я ебал твою мать',
+    
+];
+
+client.on('messageCreate', (message) => {
+    if (message.author.bot) return;
+    if (!message.mentions.has(client.user)) return;
+
+    const reply = MENTION_REPLIES[Math.floor(Math.random() * MENTION_REPLIES.length)];
+    message.reply(reply);
+});
