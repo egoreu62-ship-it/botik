@@ -45,7 +45,7 @@ function playNext() {
     }
     const next = queue.shift();
     console.log('▶️ Пытаюсь запустить ресурс, тип:', next.type);
-    const resource = createAudioResource(next.stream, { inputType: next.type });
+    const resource = createAudioResource(next.stream, { inputType: StreamType.Arbitrary });
     const subscribeResult = connection ? connection.subscribe(player) : null;
     console.log('🔗 Подписка на плеер:', subscribeResult ? 'успешно' : 'ПРОВАЛ (connection нет или уже уничтожен)');
     player.play(resource);
@@ -202,31 +202,23 @@ client.on('messageCreate', async (message) => {
 
     // ---- !test (диагностика: тестовый сигнал без интернета) ----
     if (message.content === '!test') {
-        console.log('🧪 Запускаю тестовый сигнал через ffmpeg напрямую...');
-        console.log('🧪 ffmpeg путь:', ffmpegPath);
+    console.log('🧪 Запускаю тестовый сигнал через ffmpeg напрямую...');
 
-        const ffmpegProcess = spawn(ffmpegPath, [
-            '-f', 'lavfi',
-            '-i', 'sine=frequency=440:duration=5',
-            '-f', 's16le',
-            '-ar', '48000',
-            '-ac', '2',
-            'pipe:1'
-        ]);
+    const ffmpegProcess = spawn(ffmpegPath, [
+        '-f', 'lavfi',
+        '-i', 'sine=frequency=440:duration=5',
+        '-c:a', 'libopus',
+        '-b:a', '64k',
+        '-f', 'ogg',
+        'pipe:1'
+    ]);
 
-        ffmpegProcess.stderr.on('data', (data) => {
-            console.log('🧪 ffmpeg stderr:', data.toString());
-        });
+    const resource = createAudioResource(ffmpegProcess.stdout, { inputType: StreamType.OggOpus });
+    player.play(resource);
+    message.reply('🧪 Играю тестовый сигнал!');
+    return;
+}
 
-        ffmpegProcess.on('error', (err) => {
-            console.error('🧪 Ошибка запуска ffmpeg процесса:', err);
-        });
-
-        const resource = createAudioResource(ffmpegProcess.stdout, { inputType: StreamType.Arbitrary });
-        player.play(resource);
-        message.reply('🧪 Играю тестовый сигнал (пищание 5 сек), слушайте войс');
-        return;
-    }
 
     // ---- !skip ----
     if (message.content === '!skip') {
