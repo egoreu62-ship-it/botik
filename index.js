@@ -222,7 +222,7 @@ client.on('messageCreate', async (message) => {
             console.error('🧪 Ошибка запуска ffmpeg процесса:', err);
         });
 
-        const resource = createAudioResource(ffmpegProcess.stdout, { inputType: StreamType.Raw });
+        const resource = createAudioResource(ffmpegProcess.stdout, { inputType: StreamType.Arbitrary });
         player.play(resource);
         message.reply('🧪 Играю тестовый сигнал (пищание 5 сек), слушайте войс');
         return;
