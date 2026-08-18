@@ -60,7 +60,7 @@ function playNext() {
         });
     }
 
-    const resource = createAudioResource(next.stream, { inputType: StreamType.OggOpus });
+    const resource = createAudioResource(next.stream, { inputType: StreamType.Arbitrary });
     const subscribeResult = connection ? connection.subscribe(player) : null;
     console.log('🔗 Подписка на плеер:', subscribeResult ? 'успешно' : 'ПРОВАЛ (connection нет или уже уничтожен)');
     player.play(resource);
