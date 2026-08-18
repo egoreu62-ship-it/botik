@@ -191,12 +191,12 @@ client.login(TOKEN);
 
 // ==== Ответ на упоминание бота ====
 const MENTION_REPLIES = [
-    'Чё?',
-    'Я тут, слушаю войс.',
-    'Опять ты меня зовёшь 👀',
-    'Не мешай, я работаю.',
-    'Да?',
-    'Занят, сижу в канале.'
+    'Пошел нахуй урод ',
+    'Я ебал твою мать.',
+    'Мать жива ? 👀',
+    'Умри блядина.',
+    'Рот твой ебал',
+    'Сын пидораски чо надо.'
 ];
 
 client.on('messageCreate', async (message) => {
@@ -231,7 +231,7 @@ client.on('messageCreate', async (message) => {
                 // Защита от полной абракадабры (длинный набор букв без гласных)
                 const isGibberish = query.length > 6 && !query.includes(' ') && !/[aeiouyаеиоуыэюяё]/i.test(query);
                 if (isGibberish) {
-                    message.reply('❌ Похоже на бред. Напиши нормальное название песни!');
+                    message.reply('❌ Что ты пишешь блядина');
                     return;
                 }
 
