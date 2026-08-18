@@ -60,7 +60,7 @@ function playNext() {
         });
     }
 
-    const resource = createAudioResource(next.stream, { inputType: StreamType.Arbitrary });
+    const resource = createAudioResource(next.stream, { inputType: StreamType.OggOpus });
     const subscribeResult = connection ? connection.subscribe(player) : null;
     console.log('🔗 Подписка на плеер:', subscribeResult ? 'успешно' : 'ПРОВАЛ (connection нет или уже уничтожен)');
     player.play(resource);
@@ -233,13 +233,14 @@ try {
 }
 
 // Получаем стабильный стрим из SoundCloud напрямую в нужном формате
-const streamInfo = await play.stream(url, { 
+ const streamInfo = await play.stream(url, { 
     discordPlayerCompatible: true,
     quality: 1
 });
 
-// Добавляем в очередь. Важно: принудительно ставим тип 'opus'
-queue.push({ stream: streamInfo.stream, type: 'opus', title: trackTitle });
+// Передаем настоящий тип потока из библиотеки (там будет ogg/opus)
+queue.push({ stream: streamInfo.stream, type: streamInfo.type, title: trackTitle });
+
 
 if (player.state.status !== AudioPlayerStatus.Playing) {
     playNext();
