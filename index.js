@@ -60,7 +60,7 @@ function playNext() {
         });
     }
 
-    const resource = createAudioResource(next.stream, { inputType: StreamType.Opus });
+    const resource = createAudioResource(next.stream, { inputType: StreamType.OggOpus });
     const subscribeResult = connection ? connection.subscribe(player) : null;
     console.log('🔗 Подписка на плеер:', subscribeResult ? 'успешно' : 'ПРОВАЛ (connection нет или уже уничтожен)');
     player.play(resource);
@@ -223,27 +223,28 @@ client.on('messageCreate', async (message) => {
 
             // Включаем встроенный FFmpeg-стриминг в правильном формате
            // Включаем встроенный FFmpeg-стриминг в правильном формате
-            const streamInfo = await play.stream(url, { 
-                discordPlayerCompatible: true,
-                quality: 1 
-            });
-
             // Узнаем красивое название трека для плашки
-            let trackTitle = 'Музыку';
-            try {
-                const trackData = await play.soundcloud(url);
-                trackTitle = trackData.name;
-            } catch (e) {
-                // Если не получилось достать имя ссылки, попробуем взять сохраненный поиск
-                if (!isDirectLink && results && results[0]) trackTitle = results[0].name;
-            }
+let trackTitle = 'Музыку';
+try {
+    const trackData = await play.soundcloud(url);
+    trackTitle = trackData.name;
+} catch (e) {
+    if (!isDirectLink && results && results[0]) trackTitle = results[0].name;
+}
 
-            // Добавляем в очередь вместе с названием (title)
-            queue.push({ stream: streamInfo.stream, type: streamInfo.type, title: trackTitle });
+// Получаем стабильный стрим из SoundCloud напрямую в нужном формате
+const streamInfo = await play.stream(url, { 
+    discordPlayerCompatible: true,
+    quality: 1
+});
 
-            if (player.state.status !== AudioPlayerStatus.Playing) {
-                playNext();
-            }
+// Добавляем в очередь. Важно: принудительно ставим тип 'opus'
+queue.push({ stream: streamInfo.stream, type: 'opus', title: trackTitle });
+
+if (player.state.status !== AudioPlayerStatus.Playing) {
+    playNext();
+}
+
 
             message.reply(`🎵 Добавлено в очередь: ${trackTitle}`); // Бот теперь и в чат напишет имя, а не длинную ссылку!
 
