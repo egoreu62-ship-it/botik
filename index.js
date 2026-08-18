@@ -42,16 +42,31 @@ const queue = [];
 function playNext() {
     if (queue.length === 0) {
         console.log('🔇 Очередь пуста');
+        // Если музыка кончилась, возвращаем стандартный статус
+        client.user.setPresence({
+            status: 'online',
+            activities: [{ name: 'в войсе 🎧' }]
+        });
         return;
     }
     const next = queue.shift();
     console.log('▶️ Пытаюсь запустить ресурс, тип:', next.type);
-    const resource = createAudioResource(next.stream, { inputType: StreamType.Arbitrary });
+
+    // ОБНОВЛЕНИЕ СТАТУСА: Ставим название текущего трека в плашку бота
+    if (next.title) {
+        client.user.setPresence({
+            status: 'online',
+            activities: [{ name: `🎵 ${next.title}` }] // Будет писать: "Играет в 🎵 Название трека"
+        });
+    }
+
+    const resource = createAudioResource(next.stream, { inputType: StreamType.Opus });
     const subscribeResult = connection ? connection.subscribe(player) : null;
     console.log('🔗 Подписка на плеер:', subscribeResult ? 'успешно' : 'ПРОВАЛ (connection нет или уже уничтожен)');
     player.play(resource);
     console.log('📊 Статус плеера после play():', player.state.status);
 }
+
 
 player.on(AudioPlayerStatus.Idle, () => {
     console.log('⏹ Плеер перешёл в Idle');
@@ -177,23 +192,61 @@ client.on('messageCreate', async (message) => {
             const isDirectLink = query.startsWith('http') && (await play.so_validate(query)) === 'track';
 
             if (!isDirectLink) {
-                // Это не прямая ссылка — ищем по названию
-                const results = await play.search(query, { limit: 1, source: { soundcloud: 'tracks' } });
-                if (!results.length) {
-                    message.reply('Ничего не нашёл 😕');
-                    return;
-                }
-                url = results[0].url;
+    // Защита от полной абракадабры (длинный набор букв без гласных)
+    const isGibberish = query.length > 6 && !query.includes(' ') && !/[aeiouyаеиоуыэюяё]/i.test(query);
+    if (isGibberish) {
+        message.reply('❌ Похоже на бред. Напиши нормальное название песни!');
+        return;
+    }
+
+    // Ищем по названию
+    const results = await play.search(query, { limit: 1, source: { soundcloud: 'tracks' } });
+    if (!results.length) {
+        message.reply('Ничего не нашёл 😕');
+        return;
+    }
+
+    // Проверяем, совпадает ли хоть одно слово из запроса с названием найденного трека
+    const foundTitle = results[0].name.toLowerCase();
+    const queryWords = query.toLowerCase().split(/\s+/);
+    const hasMatch = queryWords.some(word => foundTitle.includes(word));
+
+    // Если совпадений по словам вообще нет — значит SoundCloud подсунул левый рандом
+    if (!hasMatch) {
+        message.reply('❌ SoundCloud выдал случайный трек. Напиши точнее!');
+        return;
+    }
+
+    url = results[0].url;
+}
+
+
+            // Включаем встроенный FFmpeg-стриминг в правильном формате
+           // Включаем встроенный FFmpeg-стриминг в правильном формате
+            const streamInfo = await play.stream(url, { 
+                discordPlayerCompatible: true,
+                quality: 1 
+            });
+
+            // Узнаем красивое название трека для плашки
+            let trackTitle = 'Музыку';
+            try {
+                const trackData = await play.soundcloud(url);
+                trackTitle = trackData.name;
+            } catch (e) {
+                // Если не получилось достать имя ссылки, попробуем взять сохраненный поиск
+                if (!isDirectLink && results && results[0]) trackTitle = results[0].name;
             }
 
-            const streamInfo = await play.stream(url);
-            queue.push({ stream: streamInfo.stream, type: streamInfo.type });
+            // Добавляем в очередь вместе с названием (title)
+            queue.push({ stream: streamInfo.stream, type: streamInfo.type, title: trackTitle });
 
             if (player.state.status !== AudioPlayerStatus.Playing) {
                 playNext();
             }
 
-            message.reply(`🎵 Добавлено в очередь: ${url}`);
+            message.reply(`🎵 Добавлено в очередь: ${trackTitle}`); // Бот теперь и в чат напишет имя, а не длинную ссылку!
+
         } catch (error) {
             console.error('Ошибка воспроизведения:', error);
             message.reply('Не получилось включить это 😕');
@@ -228,13 +281,22 @@ client.on('messageCreate', async (message) => {
         return;
     }
 
-    // ---- !stop ----
+    
+        // ---- !stop ----
     if (message.content === '!stop') {
         queue.length = 0;
         player.stop();
+        
+        // Сбрасываем статус в исходный
+        client.user.setPresence({
+            status: 'online',
+            activities: [{ name: 'в войсе 🎧' }]
+        });
+
         message.reply('⏹ Останавливаю музыку');
         return;
     }
+
 
     // ---- Ответ на упоминание бота ----
     if (message.mentions.has(client.user)) {
