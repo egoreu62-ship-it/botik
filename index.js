@@ -71,7 +71,7 @@ function saveLists() {
     fs.writeFileSync(DATA_FILE, JSON.stringify({ blacklist, whitelist, likes, balances, lastDaily,  redeemedPromo }, null, 2));
 }
 
-let { blacklist, whitelist, likes, balances, lastDaily } = loadLists();
+let { blacklist, whitelist, likes, balances, lastDaily, redeemedPromo } = loadLists();
 
 function getBalance(userId) {
     if (typeof balances[userId] !== 'number') balances[userId] = 1000;
