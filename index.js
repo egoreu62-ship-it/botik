@@ -1166,6 +1166,66 @@ startTurnTimer(); // запускаем таймер на самый первы�
     }
 
     // ---- !casino <ставка> ----
+
+        // ---- !casino bonus <ставка> (бонус-бай) ----
+    const BONUS_BUY_COST_MULTIPLIER = 20; // цена входа = ставка × 20
+    const BONUS_BUY_MIN_MULTIPLIER = 5;
+    const BONUS_BUY_MAX_MULTIPLIER = 50;
+
+    if (message.content.startsWith('!casino bonus')) {
+        const args = message.content.split(' ');
+        const bet = parseInt(args[2]);
+
+        if (!bet || bet <= 0) {
+            message.reply('Напиши так: `!casino bonus 100` (ставка фишками)');
+            return;
+        }
+
+        const cost = bet * BONUS_BUY_COST_MULTIPLIER;
+        const balance = getBalance(message.author.id);
+
+        if (cost > balance) {
+            message.reply(`Бонус-бай стоит ${cost} 🪙 (ставка × ${BONUS_BUY_COST_MULTIPLIER}). У тебя: ${balance} 🪙`);
+            return;
+        }
+
+        setBalance(message.author.id, balance - cost);
+
+        // Взвешенный рандом: чаще небольшой множитель, редко — джекпот
+        const roll = Math.random();
+        let multiplier;
+        if (roll < 0.60) {
+            multiplier = BONUS_BUY_MIN_MULTIPLIER + Math.random() * 5; // 5x-10x, часто
+        } else if (roll < 0.90) {
+            multiplier = 10 + Math.random() * 15; // 10x-25x
+        } else {
+            multiplier = 25 + Math.random() * (BONUS_BUY_MAX_MULTIPLIER - 25); // 25x-50x, редкий джекпот
+        }
+
+        const winnings = Math.floor(bet * multiplier);
+        setBalance(message.author.id, getBalance(message.author.id) + winnings);
+
+        const net = winnings - cost;
+        const isProfit = net > 0;
+
+        const gif = isProfit
+            ? WIN_GIFS[Math.floor(Math.random() * WIN_GIFS.length)]
+            : LOSE_GIFS[Math.floor(Math.random() * LOSE_GIFS.length)];
+
+        const embed = new EmbedBuilder()
+            .setColor(isProfit ? 0x00ff00 : 0xff0000)
+            .setTitle('🎰💰 Бонус-бай')
+            .setDescription(
+                `Заплачено за вход: ${cost} 🪙\n` +
+                `Выигрыш в бонусе: ${winnings} 🪙 (×${multiplier.toFixed(1)})\n\n` +
+                `${isProfit ? '🎉 В плюсе на' : '😔 В минусе на'} ${Math.abs(net)} 🪙\n\n` +
+                `Баланс: ${getBalance(message.author.id)} 🪙`
+            )
+            .setImage(gif);
+
+        message.reply({ embeds: [embed] });
+        return;
+    }
     if (message.content.startsWith('!casino')) {
         const args = message.content.split(' ');
         const bet = parseInt(args[1]);
