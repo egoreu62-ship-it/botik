@@ -1156,7 +1156,7 @@ if (houseEdgeRoll < 0.65) {
 
 
     // ---- !promo <код> ----
-const PROMO_CODE = 'ПИДОР'; // придумай свой секретный код, например '67лет'
+const PROMO_CODE = 'pidor'; // придумай свой секретный код, например '67лет'
 const PROMO_AMOUNT = 6767;
 
 if (message.content.startsWith('!promo')) {
