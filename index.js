@@ -901,11 +901,28 @@ client.on('messageCreate', async (message) => {
 
     // ---- !ttt @соперник (крестики-нолики) ----
     if (message.content.startsWith('!ttt')) {
-        const opponent = message.mentions.users.first();
-        if (!opponent || opponent.bot || opponent.id === message.author.id) {
-            message.reply('Упомяни соперника: `!ttt @человек`');
+    const opponent = message.mentions.users.first();
+    const args = message.content.split(' ');
+    const bet = parseInt(args[args.length - 1]) || 0; // ставка необязательна
+
+    if (!opponent || opponent.bot || opponent.id === message.author.id) {
+        message.reply('Напиши так: `!ttt @человек` (без ставки) или `!ttt @человек 100` (на фишки)');
+        return;
+    }
+
+    if (bet > 0) {
+        const challengerBalance = getBalance(message.author.id);
+        const opponentBalance = getBalance(opponent.id);
+
+        if (bet > challengerBalance) {
+            message.reply(`У тебя недостаточно фишек! Баланс: ${challengerBalance} 🪙`);
             return;
         }
+        if (bet > opponentBalance) {
+            message.reply(`У ${opponent} недостаточно фишек для такой ставки`);
+            return;
+        }
+    }
 
         const players = [message.author, opponent];
         const symbols = ['❌', '⭕'];
@@ -959,11 +976,26 @@ client.on('messageCreate', async (message) => {
             const result = checkTttWin();
 
             if (result) {
-                collector.stop();
-                const resultText = result === 'draw' ? '🤝 Ничья!' : `🎉 Победил ${result === '❌' ? players[0] : players[1]}!`;
-                await interaction.update({ content: resultText, components: buildTttRows(true) });
-                return;
-            }
+    collector.stop();
+    let resultText;
+
+    if (result === 'draw') {
+        resultText = '🤝 Ничья!' + (bet > 0 ? ' Ставки возвращены, фишки не потеряны.' : '');
+    } else {
+        const winner = result === '❌' ? players[0] : players[1];
+        const loser = result === '❌' ? players[1] : players[0];
+        resultText = `🎉 Победил ${winner}!`;
+
+        if (bet > 0) {
+            setBalance(winner.id, getBalance(winner.id) + bet);
+            setBalance(loser.id, getBalance(loser.id) - bet);
+            resultText += ` Забирает ${bet} 🪙 у ${loser}. Баланс: ${getBalance(winner.id)} 🪙`;
+        }
+    }
+
+    await interaction.update({ content: resultText, components: buildTttRows(true) });
+    return;
+}
 
             turn = 1 - turn;
             await interaction.update({
