@@ -963,6 +963,29 @@ client.on('messageCreate', async (message) => {
 
         const collector = gameMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 120000 });
 
+let turnTimer = null;
+
+function startTurnTimer() {
+    if (turnTimer) clearTimeout(turnTimer);
+    turnTimer = setTimeout(async () => {
+        collector.stop('timeout_move');
+
+        const winner = players[1 - turn];
+        const loser = players[turn];
+        let resultText = `⏱️ ${loser} не сходил за 30 секунд — поражение! Победил ${winner}.`;
+
+        if (bet > 0) {
+            setBalance(winner.id, getBalance(winner.id) + bet);
+            setBalance(loser.id, getBalance(loser.id) - bet);
+            resultText += ` Забирает ${bet} 🪙. Баланс: ${getBalance(winner.id)} 🪙`;
+        }
+
+        await gameMsg.edit({ content: resultText, components: buildTttRows(true) }).catch(() => {});
+    }, 30000);
+}
+
+startTurnTimer(); // запускаем таймер на самый первый ход
+
         collector.on('collect', async (interaction) => {
             if (interaction.user.id !== players[turn].id) {
                 await interaction.reply({ content: 'Сейчас не твой ход!', ephemeral: true });
@@ -977,38 +1000,36 @@ client.on('messageCreate', async (message) => {
 
             if (result) {
     collector.stop();
+    clearTimeout(turnTimer);
     let resultText;
-
     if (result === 'draw') {
         resultText = '🤝 Ничья!' + (bet > 0 ? ' Ставки возвращены, фишки не потеряны.' : '');
     } else {
         const winner = result === '❌' ? players[0] : players[1];
         const loser = result === '❌' ? players[1] : players[0];
         resultText = `🎉 Победил ${winner}!`;
-
         if (bet > 0) {
             setBalance(winner.id, getBalance(winner.id) + bet);
             setBalance(loser.id, getBalance(loser.id) - bet);
             resultText += ` Забирает ${bet} 🪙 у ${loser}. Баланс: ${getBalance(winner.id)} 🪙`;
         }
     }
-
     await interaction.update({ content: resultText, components: buildTttRows(true) });
     return;
 }
-
             turn = 1 - turn;
+            startTurnTimer();
             await interaction.update({
                 content: `❌ ${players[0]} vs ⭕ ${players[1]} — ходит ${players[turn]}`,
                 components: buildTttRows(false)
             });
         });
-
         collector.on('end', (collected, reason) => {
-            if (reason === 'time') {
-                gameMsg.edit({ content: '⏱️ Время вышло, игра отменена', components: [] }).catch(() => {});
-            }
-        });
+    clearTimeout(turnTimer);
+    if (reason === 'time') {
+        gameMsg.edit({ content: '⏱️ Общее время игры вышло, игра отменена', components: [] }).catch(() => {});
+    }
+});
         return;
     }
 
