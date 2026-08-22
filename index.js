@@ -652,7 +652,7 @@ client.on('messageCreate', async (message) => {
 
     // ---- !help ----
     if (message.content === '!help') {
-        const helpText =
+                const helpText =
             '**🎵 Музыка**\n' +
             '`!play <название/ссылка>` — включить трек (SoundCloud или YouTube)\n' +
             '`!skip` — пропустить трек\n' +
@@ -666,15 +666,20 @@ client.on('messageCreate', async (message) => {
             '`!like` — лайкнуть текущий трек\n' +
             '`!radio` — играть твои лайкнутые треки по кругу\n' +
             '`!anime` — случайный опенинг аниме\n\n' +
-            '**🎲 Развлечения**\n' +
+            '**🎲 Игры и развлечения**\n' +
             '`!kubik` — бросить кубик\n' +
             '`!коктель <ингредиенты>` — узнать коктейль по составу\n' +
             '`!67` — не спрашивай просто попробуй\n' +
-            '`!ttt @соперник` — крестики-нолики\n' +
+            '`!ttt @соперник [ставка]` — крестики-нолики (можно на фишки)\n' +
             '`!battleship @соперник` — морской бой\n' +
             '`!casino <ставка>` — слоты 777\n' +
             '`!blackjack <ставка>` — блэкджек\n' +
-            '`!balance` — узнать баланс фишек\n\n' +
+            '`!duel @соперник <ставка>` — дуэль на фишки\n\n' +
+            '**💰 Экономика**\n' +
+            '`!balance` — узнать баланс фишек\n' +
+            '`!daily` — ежедневный бонус 2000 🪙\n' +
+            '`!pay @человек <сумма>` — перевести фишки\n' +
+            '`!promo <код>` — активировать промокод\n\n' +
             '**🔧 Другое**\n' +
             '`!test` — тестовый сигнал (диагностика звука)';
         message.reply(helpText);
@@ -922,6 +927,35 @@ client.on('messageCreate', async (message) => {
             message.reply(`У ${opponent} недостаточно фишек для такой ставки`);
             return;
         }
+    }
+
+            // ---- Подтверждение участия (чтобы нельзя было красть очки у афк) ----
+    const challengeRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('ttt_accept').setLabel('Принять').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('ttt_decline').setLabel('Отклонить').setStyle(ButtonStyle.Danger)
+    );
+
+    const challengeMsg = await message.reply({
+        content: `⚔️ ${message.author} вызывает ${opponent} на крестики-нолики${bet > 0 ? ` на ставку ${bet} 🪙` : ''}!`,
+        components: [challengeRow]
+    });
+
+    try {
+        const confirmation = await challengeMsg.awaitMessageComponent({
+            componentType: ComponentType.Button,
+            time: 30000,
+            filter: (i) => i.user.id === opponent.id
+        });
+
+        if (confirmation.customId === 'ttt_decline') {
+            await confirmation.update({ content: `${opponent} отклонил вызов 🏳️`, components: [] });
+            return;
+        }
+
+        await confirmation.update({ content: `✅ Вызов принят! Начинаем игру...`, components: [] });
+    } catch (e) {
+        await challengeMsg.edit({ content: '⏱️ Вызов не был принят вовремя', components: [] }).catch(() => {});
+        return;
     }
 
         const players = [message.author, opponent];
