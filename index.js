@@ -58,18 +58,19 @@ function loadLists() {
             blacklist: parsed.blacklist || [],
             whitelist: parsed.whitelist || [],
             likes: parsed.likes || {}, // { userId: [{ title, url }] }
-            balances: parsed.balances || {} // { userId: number }
+            balances: parsed.balances || {},// { userId: number }
+            lastDaily: parsed.lastDaily || {}
         };
     } catch (e) {
-        return { blacklist: [], whitelist: [], likes: {}, balances: {} };
+        return { blacklist: [], whitelist: [], likes: {}, balances: {}, lastDaily: {} };
     }
 }
 
 function saveLists() {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ blacklist, whitelist, likes, balances }, null, 2));
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ blacklist, whitelist, likes, balances, lastDaily }, null, 2));
 }
 
-let { blacklist, whitelist, likes, balances } = loadLists();
+let { blacklist, whitelist, likes, balances, lastDaily } = loadLists();
 
 function getBalance(userId) {
     if (typeof balances[userId] !== 'number') balances[userId] = 1000;
@@ -114,10 +115,7 @@ const LOSE_GIFS = [
     'https://cdn.discordapp.com/emojis/1540813882606624909.webp?size=96',
     'https://cdn.discordapp.com/emojis/1540814213570895922.webp?size=96',
     'https://cdn.discordapp.com/emojis/1540813692525084772.webp?size=96',
-    'ССЫЛКА_НА_ГИФКУ_ПРОИГРЫША_7',
-    'ССЫЛКА_НА_ГИФКУ_ПРОИГРЫША_8',
-    'ССЫЛКА_НА_ГИФКУ_ПРОИГРЫША_9',
-    'ССЫЛКА_НА_ГИФКУ_ПРОИГРЫША_10'
+    
 ];
 
 // ==== Блэкджек: вспомогательные функции для карт ====
@@ -1102,16 +1100,22 @@ client.on('messageCreate', async (message) => {
         ];
 
         let winnings, resultText;
-        if (reels[0] === reels[1] && reels[1] === reels[2]) {
-            winnings = bet * 5;
-            resultText = `🎉 ДЖЕКПОТ! Выигрыш: ${winnings} 🪙`;
-        } else if (reels[0] === reels[1] || reels[1] === reels[2] || reels[0] === reels[2]) {
-            winnings = bet * 2;
-            resultText = `✨ Две одинаковые! Выигрыш: ${winnings} 🪙`;
-        } else {
-            winnings = -bet;
-            resultText = `😔 Проигрыш: ${bet} 🪙`;
-        }
+const houseEdgeRoll = Math.random(); // шанс "дом выигрывает" независимо от символов
+
+if (houseEdgeRoll < 0.65) {
+    // 65% случаев — гарантированный проигрыш, как в реальном казино
+    winnings = -bet;
+    resultText = `😔 Проигрыш: ${bet} 🪙`;
+} else if (reels[0] === reels[1] && reels[1] === reels[2]) {
+    winnings = bet * 5;
+    resultText = `🎉 ДЖЕКПОТ! Выигрыш: ${winnings} 🪙`;
+} else if (reels[0] === reels[1] || reels[1] === reels[2] || reels[0] === reels[2]) {
+    winnings = bet * 2;
+    resultText = `✨ Две одинаковые! Выигрыш: ${winnings} 🪙`;
+} else {
+    winnings = -bet;
+    resultText = `😔 Проигрыш: ${bet} 🪙`;
+}
 
         setBalance(message.author.id, balance + winnings);
 
@@ -1129,6 +1133,31 @@ client.on('messageCreate', async (message) => {
         message.reply({ embeds: [embed] });
         return;
     }
+          // ---- !daily (ежедневный бонус) ----
+    if (message.content === '!daily') {
+        const userId = message.author.id;
+        const now = Date.now();
+        const DAY_MS = 24 * 60 * 60 * 1000;
+        const DAILY_AMOUNT = 2000;
+
+        if (!lastDaily[userId] || now - lastDaily[userId] >= DAY_MS) {
+            lastDaily[userId] = now;
+            saveLists();
+            setBalance(userId, getBalance(userId) + DAILY_AMOUNT);
+            message.reply(`🎁 Получено ${DAILY_AMOUNT} фишек! Баланс: ${getBalance(userId)} 🪙`);
+        } else {
+            const remaining = DAY_MS - (now - lastDaily[userId]);
+            const hoursLeft = Math.ceil(remaining / (60 * 60 * 1000));
+            message.reply(`⏳ Уже получал сегодня. Приходи через ~${hoursLeft} ч.`);
+        }
+        return;
+    }
+
+
+
+
+
+    
 
     // ---- !blackjack <ставка> ----
     if (message.content.startsWith('!blackjack')) {
