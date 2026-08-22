@@ -1187,6 +1187,118 @@ if (message.content.startsWith('!promo')) {
 }
 
 
+    // ---- !pay @человек <сумма> ----
+if (message.content.startsWith('!pay')) {
+    const target = message.mentions.users.first();
+    const args = message.content.split(' ');
+    const amount = parseInt(args[args.length - 1]);
+
+    if (!target || target.bot || target.id === message.author.id) {
+        message.reply('Напиши так: `!pay @человек 100`');
+        return;
+    }
+
+    if (!amount || amount <= 0) {
+        message.reply('Укажи сумму больше нуля: `!pay @человек 100`');
+        return;
+    }
+
+    const senderBalance = getBalance(message.author.id);
+    if (amount > senderBalance) {
+        message.reply(`Недостаточно фишек! У тебя: ${senderBalance} 🪙`);
+        return;
+    }
+
+    setBalance(message.author.id, senderBalance - amount);
+    setBalance(target.id, getBalance(target.id) + amount);
+
+    message.reply(`💸 Переведено ${amount} 🪙 пользователю ${target}. Твой баланс: ${getBalance(message.author.id)} 🪙`);
+    return;
+}
+
+
+
+    // ---- !duel @соперник <ставка> ----
+if (message.content.startsWith('!duel')) {
+    const opponent = message.mentions.users.first();
+    const args = message.content.split(' ');
+    const bet = parseInt(args[args.length - 1]);
+
+    if (!opponent || opponent.bot || opponent.id === message.author.id) {
+        message.reply('Напиши так: `!duel @человек 100`');
+        return;
+    }
+
+    if (!bet || bet <= 0) {
+        message.reply('Укажи ставку больше нуля: `!duel @человек 100`');
+        return;
+    }
+
+    const challengerBalance = getBalance(message.author.id);
+    const opponentBalance = getBalance(opponent.id);
+
+    if (bet > challengerBalance) {
+        message.reply(`У тебя недостаточно фишек! Баланс: ${challengerBalance} 🪙`);
+        return;
+    }
+    if (bet > opponentBalance) {
+        message.reply(`У ${opponent} недостаточно фишек для такой ставки`);
+        return;
+    }
+
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('duel_accept').setLabel('Принять вызов').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('duel_decline').setLabel('Отклонить').setStyle(ButtonStyle.Danger)
+    );
+
+    const duelMsg = await message.reply({
+        content: `⚔️ ${message.author} вызывает ${opponent} на дуэль! Ставка: ${bet} 🪙 (победитель забирает всё)`,
+        components: [row]
+    });
+
+    const collector = duelMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60000 });
+
+    collector.on('collect', async (interaction) => {
+        if (interaction.user.id !== opponent.id) {
+            await interaction.reply({ content: 'Это не твой вызов!', ephemeral: true });
+            return;
+        }
+
+        collector.stop();
+
+        if (interaction.customId === 'duel_decline') {
+            await interaction.update({ content: `${opponent} отказался от дуэли 🏳️`, components: [] });
+            return;
+        }
+
+        // Финальная проверка баланса на случай, если кто-то потратил фишки за время ожидания
+        if (getBalance(message.author.id) < bet || getBalance(opponent.id) < bet) {
+            await interaction.update({ content: 'У кого-то из вас не хватает фишек прямо сейчас 😕', components: [] });
+            return;
+        }
+
+        const winner = Math.random() < 0.5 ? message.author : opponent;
+        const loser = winner.id === message.author.id ? opponent : message.author;
+
+        setBalance(winner.id, getBalance(winner.id) + bet);
+        setBalance(loser.id, getBalance(loser.id) - bet);
+
+        await interaction.update({
+            content: `⚔️ Дуэль окончена! 🏆 Победил ${winner} и забирает ${bet} 🪙 у ${loser}.\n` +
+                      `Баланс ${winner}: ${getBalance(winner.id)} 🪙`,
+            components: []
+        });
+    });
+
+    collector.on('end', (collected, reason) => {
+        if (reason === 'time') {
+            duelMsg.edit({ content: '⏱️ Дуэль отменена — соперник не ответил', components: [] }).catch(() => {});
+        }
+    });
+    return;
+}
+
+
 
 
     
