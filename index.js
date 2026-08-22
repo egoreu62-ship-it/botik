@@ -103,17 +103,17 @@ const WIN_GIFS = [
     'https://cdn.discordapp.com/emojis/1540807138421776494.webp?size=96',
     'https://cdn.discordapp.com/emojis/1540806953335259247.webp?size=96',
     'https://cdn.discordapp.com/emojis/1540807186060677220.webp?size=96',
-    'ССЫЛКА_НА_ГИФКУ_ПОБЕДЫ_10'
+    'https://cdn.discordapp.com/emojis/1540813642587578538.webp?size=96'
 ];
 
 // Вставь сюда 10+ ссылок на гифки для проигрыша
 const LOSE_GIFS = [
-    'ССЫЛКА_НА_ГИФКУ_ПРОИГРЫША_1',
-    'ССЫЛКА_НА_ГИФКУ_ПРОИГРЫША_2',
-    'ССЫЛКА_НА_ГИФКУ_ПРОИГРЫША_3',
-    'ССЫЛКА_НА_ГИФКУ_ПРОИГРЫША_4',
-    'ССЫЛКА_НА_ГИФКУ_ПРОИГРЫША_5',
-    'ССЫЛКА_НА_ГИФКУ_ПРОИГРЫША_6',
+    'https://cdn.discordapp.com/emojis/1540813742600753152.webp?size=96',
+    'https://cdn.discordapp.com/emojis/1540813775303737485.webp?size=96',
+    'https://cdn.discordapp.com/emojis/1540813851711512596.webp?size=96',
+    'https://cdn.discordapp.com/emojis/1540813882606624909.webp?size=96',
+    'https://cdn.discordapp.com/emojis/1540814213570895922.webp?size=96',
+    'https://cdn.discordapp.com/emojis/1540813692525084772.webp?size=96',
     'ССЫЛКА_НА_ГИФКУ_ПРОИГРЫША_7',
     'ССЫЛКА_НА_ГИФКУ_ПРОИГРЫША_8',
     'ССЫЛКА_НА_ГИФКУ_ПРОИГРЫША_9',
