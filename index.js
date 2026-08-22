@@ -1190,7 +1190,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         let winnings, resultText;
 const houseEdgeRoll = Math.random(); // шанс "дом выигрывает" независимо от символов
 
-if (houseEdgeRoll < 0.5) {
+if (houseEdgeRoll < 0.4) {
     // 65% случаев — гарантированный проигрыш, как в реальном казино
     winnings = -bet;
     resultText = `😔 Проигрыш: ${bet} 🪙`;
