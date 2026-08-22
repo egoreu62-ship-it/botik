@@ -59,7 +59,8 @@ function loadLists() {
             whitelist: parsed.whitelist || [],
             likes: parsed.likes || {}, // { userId: [{ title, url }] }
             balances: parsed.balances || {},// { userId: number }
-            lastDaily: parsed.lastDaily || {}
+            lastDaily: parsed.lastDaily || {},
+            redeemedPromo: parsed.redeemedPromo || []
         };
     } catch (e) {
         return { blacklist: [], whitelist: [], likes: {}, balances: {}, lastDaily: {} };
@@ -67,7 +68,7 @@ function loadLists() {
 }
 
 function saveLists() {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ blacklist, whitelist, likes, balances, lastDaily }, null, 2));
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ blacklist, whitelist, likes, balances, lastDaily,  redeemedPromo }, null, 2));
 }
 
 let { blacklist, whitelist, likes, balances, lastDaily } = loadLists();
@@ -1153,6 +1154,37 @@ if (houseEdgeRoll < 0.65) {
         return;
     }
 
+
+    // ---- !promo <код> ----
+const PROMO_CODE = 'ПИДОР'; // придумай свой секретный код, например '67лет'
+const PROMO_AMOUNT = 6767;
+
+if (message.content.startsWith('!promo')) {
+    const args = message.content.split(' ');
+    const enteredCode = args[1];
+
+    if (!enteredCode) {
+        message.reply('Напиши так: `!promo код`');
+        return;
+    }
+
+    if (enteredCode !== PROMO_CODE) {
+        message.reply('❌ Неверный промокод');
+        return;
+    }
+
+    if (redeemedPromo.includes(message.author.id)) {
+        message.reply('❌ Ты уже активировал этот промокод');
+        return;
+    }
+
+    redeemedPromo.push(message.author.id);
+    setBalance(message.author.id, getBalance(message.author.id) + PROMO_AMOUNT);
+    saveLists();
+
+    message.reply(`🎉 Промокод активирован! +${PROMO_AMOUNT} 🪙. Баланс: ${getBalance(message.author.id)} 🪙`);
+    return;
+}
 
 
 
