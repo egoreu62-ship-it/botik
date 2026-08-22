@@ -94,15 +94,15 @@ const SLOT_SYMBOLS = [
 
 // Вставь сюда 10+ ссылок на гифки для победы
 const WIN_GIFS = [
-    'ССЫЛКА_НА_ГИФКУ_ПОБЕДЫ_1',
-    'ССЫЛКА_НА_ГИФКУ_ПОБЕДЫ_2',
-    'ССЫЛКА_НА_ГИФКУ_ПОБЕДЫ_3',
-    'ССЫЛКА_НА_ГИФКУ_ПОБЕДЫ_4',
-    'ССЫЛКА_НА_ГИФКУ_ПОБЕДЫ_5',
-    'ССЫЛКА_НА_ГИФКУ_ПОБЕДЫ_6',
-    'ССЫЛКА_НА_ГИФКУ_ПОБЕДЫ_7',
-    'ССЫЛКА_НА_ГИФКУ_ПОБЕДЫ_8',
-    'ССЫЛКА_НА_ГИФКУ_ПОБЕДЫ_9',
+    'https://cdn.discordapp.com/emojis/1540807221707939860.webp?size=96',
+    'https://cdn.discordapp.com/emojis/1540806818282995834.webp?size=96',
+    'https://cdn.discordapp.com/emojis/1540806712230027344.webp?size=96',
+    'https://cdn.discordapp.com/emojis/1540807016753406003.webp?size=32',
+    'https://cdn.discordapp.com/emojis/1540806857701199883.webp?size=96',
+    'https://cdn.discordapp.com/emojis/1540805879639707678.webp?size=96',
+    'https://cdn.discordapp.com/emojis/1540807138421776494.webp?size=96',
+    'https://cdn.discordapp.com/emojis/1540806953335259247.webp?size=96',
+    'https://cdn.discordapp.com/emojis/1540807186060677220.webp?size=96',
     'ССЫЛКА_НА_ГИФКУ_ПОБЕДЫ_10'
 ];
 
