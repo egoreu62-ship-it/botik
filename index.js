@@ -1172,7 +1172,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         // ---- !casino bonus <ставка> (бонус-бай) ----
     const BONUS_BUY_COST_MULTIPLIER = 20; // цена входа = ставка × 20
     const BONUS_BUY_MIN_MULTIPLIER = 5;
-    const BONUS_BUY_MAX_MULTIPLIER = 50;
+    const BONUS_BUY_MAX_MULTIPLIER = 100;
 
     if (message.content.startsWith('!casino bonus')) {
         const args = message.content.split(' ');
@@ -1196,9 +1196,9 @@ startTurnTimer(); // запускаем таймер на самый первы�
         // Взвешенный рандом: чаще небольшой множитель, редко — джекпот
         const roll = Math.random();
         let multiplier;
-        if (roll < 0.40) {
+        if (roll < 0.20) {
             multiplier = BONUS_BUY_MIN_MULTIPLIER + Math.random() * 5; // 5x-10x, часто
-        } else if (roll < 0.70) {
+        } else if (roll < 0.40) {
             multiplier = 10 + Math.random() * 15; // 10x-25x
         } else {
             multiplier = 25 + Math.random() * (BONUS_BUY_MAX_MULTIPLIER - 25); // 25x-50x, редкий джекпот
