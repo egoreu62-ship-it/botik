@@ -1196,9 +1196,9 @@ startTurnTimer(); // запускаем таймер на самый первы�
         // Взвешенный рандом: чаще небольшой множитель, редко — джекпот
         const roll = Math.random();
         let multiplier;
-        if (roll < 0.20) {
+        if (roll < 0.60) {
             multiplier = BONUS_BUY_MIN_MULTIPLIER + Math.random() * 5; // 5x-10x, часто
-        } else if (roll < 0.40) {
+        } else if (roll < 0.90) {
             multiplier = 10 + Math.random() * 15; // 10x-25x
         } else {
             multiplier = 25 + Math.random() * (BONUS_BUY_MAX_MULTIPLIER - 25); // 25x-50x, редкий джекпот
