@@ -1233,7 +1233,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         message.reply({ embeds: [embed] });
         return;
     }
-           if (message.content.startsWith('!casino')) {
+               if (message.content.startsWith('!casino')) {
         const args = message.content.split(' ');
         const bet = parseInt(args[1]);
 
@@ -1247,36 +1247,47 @@ startTurnTimer(); // запускаем таймер на самый первы�
             message.reply(`Недостаточно фишек! У тебя: ${balance} 🪙`);
             return;
         }
-
-        // 1. Получаем текущий баланс игрока
-        const playerBalance = getBalance(message.author.id);
-        let winHelpChance = 0;
-
-        // 2. Настраиваем логику подкрутки в зависимости от баланса
-        if (playerBalance < 10000) {
-            // Если баланс меньше 10к — помогаем выиграть в 65% случаев
-            winHelpChance = 0.65; 
-        } else if (playerBalance >= 10000 && playerBalance < 50000) {
-            // От 10к до 50к — абсолютно честная игра без подкруток
-            winHelpChance = 0.00; 
-        } else {
-            // Больше 50к — включаем режим слива в 85% случаев
-            winHelpChance = -0.85; 
+                           // 📈 ДИНАМИЧЕСКИЙ ЛИМИТ СТАВКИ
+        // Новички могут ставить 500. Богачи — больше (500 + 10% от их баланса)
+        let dynamicMaxBet = Math.floor(500 + (balance * 0.10));
+        
+        // Но ставка не может быть выше 10 000 фишек (абсолютный потолок)
+        if (dynamicMaxBet > 10000) {
+            dynamicMaxBet = 10000;
         }
 
-        // СТРОКА ОБЪЯВЛЕНА ТОЛЬКО ОДИН РАЗ — ОШИБКИ БОЛЬШЕ НЕ БУДЕТ
+        if (bet > dynamicMaxBet) {
+            message.reply(`❌ Твой лимит ставки сейчас — не больше ${dynamicMaxBet} 🪙! (Лимит растет вместе с балансом)`);
+            return;
+        }
+
+
+        const playerBalance = getBalance(message.author.id);
         const houseEdgeRoll = Math.random();
         let reels, winnings, resultText;
 
-        // 3. Выполняем подкрутку
+        // 🎲 ДИНАМИЧЕСКАЯ СИСТЕМА УДАЧИ (КАК В РЕАЛЬНОМ КАЗИНО)
+        // Рассчитываем динамический шанс помощи на основе баланса.
+        // Чем больше баланс, тем меньше бот помогает.
+        let winHelpChance = 0;
+
+        if (playerBalance < 15000) {
+            // Формула плавного снижения: на 2000 баланса шанс помощи ~75%, на 10000 ~20%
+            winHelpChance = 0.85 - (playerBalance / 18000); 
+            if (winHelpChance < 0.05) winHelpChance = 0.05; // Минимальная помощь останется всегда
+        } else {
+            // Если баланс уже большой, включается скрытый сбор казино (House Edge)
+            // Но не 100% слив, а просто легкое занижение шанса (на 15-20%), чтобы игрок чувствовал "качели"
+            winHelpChance = -0.18; 
+        }
+
+        // 3. Выполнение прокрутки с учетом динамического рандома
         if (winHelpChance > 0 && houseEdgeRoll < winHelpChance) {
-            // --- РЕЖИМ ПОМОЩИ (Гарантированный выигрыш) ---
-            if (Math.random() < 0.15) {
-                // Выдаем ДЖЕКПОТ (3 одинаковых)
+            // --- РЕЖИМ ЛЕГКОГО РАЗГРЕВА (Помогаем подняться) ---
+            if (Math.random() < 0.12) { // 12% на джекпот в режиме помощи
                 let luckySymbol = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
                 reels = [luckySymbol, luckySymbol, luckySymbol];
             } else {
-                // Выдаем 2 одинаковых символа
                 let sym1 = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
                 let sym2 = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
                 while (sym1 === sym2) {
@@ -1285,7 +1296,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
                 reels = [sym1, sym1, sym2];
             }
         } else if (winHelpChance < 0 && houseEdgeRoll < Math.abs(winHelpChance)) {
-            // --- РЕЖИМ СЛИВА (Гарантированный проигрыш для богатых) ---
+            // --- РЕЖИМ СДЕРЖИВАНИЯ (Казино забирает маржу, создавая трудности) ---
             do {
                 reels = [
                     SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
@@ -1294,7 +1305,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
                 ];
             } while (reels[0] === reels[1] || reels[1] === reels[2] || reels[0] === reels[2]);
         } else {
-            // --- ЧЕСТНАЯ ИГРА (Когда баланс от 10к до 50к или не сработал рандом подкрутки) ---
+            // --- ЧИСТЫЙ МАТЕМАТИЧЕСКИЙ РАНДОМ ---
             reels = [
                 SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
                 SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
@@ -1302,7 +1313,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
             ];
         }
 
-        // 4. Проверяем получившиеся барабаны и рассчитываем награду
+        // 4. Проверка совпадений
         if (reels[0] === reels[1] && reels[1] === reels[2]) {
             winnings = bet * 5;
             resultText = `🎉 ДЖЕКПОТ! Выигрыш: ${winnings} 🪙`;
@@ -1314,7 +1325,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
             resultText = `😔 Проигрыш: ${bet} 🪙`;
         }
 
-        // 5. Обновляем баланс в базе данных
+        // 5. Сохранение баланса
         setBalance(message.author.id, balance + winnings);
 
         const isWin = winnings > 0;
