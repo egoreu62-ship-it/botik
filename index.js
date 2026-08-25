@@ -1288,7 +1288,7 @@ if (houseEdgeRoll < 0.65) {
 
 
 
-else if (reels[0] === reels[1] && reels[1] === reels[2]) 
+
 
         setBalance(message.author.id, balance + winnings);
 
