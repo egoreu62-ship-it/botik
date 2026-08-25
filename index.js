@@ -1233,7 +1233,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         message.reply({ embeds: [embed] });
         return;
     }
-    if (message.content.startsWith('!casino')) {
+           if (message.content.startsWith('!casino')) {
         const args = message.content.split(' ');
         const bet = parseInt(args[1]);
 
@@ -1248,9 +1248,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
             return;
         }
 
-        const houseEdgeRoll = Math.random();
-
-                // 1. Получаем текущий баланс игрока
+        // 1. Получаем текущий баланс игрока
         const playerBalance = getBalance(message.author.id);
         let winHelpChance = 0;
 
@@ -1266,6 +1264,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
             winHelpChance = -0.85; 
         }
 
+        // СТРОКА ОБЪЯВЛЕНА ТОЛЬКО ОДИН РАЗ — ОШИБКИ БОЛЬШЕ НЕ БУДЕТ
         const houseEdgeRoll = Math.random();
         let reels, winnings, resultText;
 
@@ -1315,12 +1314,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
             resultText = `😔 Проигрыш: ${bet} 🪙`;
         }
 
-
-
-
-
-
-
+        // 5. Обновляем баланс в базе данных
         setBalance(message.author.id, balance + winnings);
 
         const isWin = winnings > 0;
@@ -1337,6 +1331,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         message.reply({ embeds: [embed] });
         return;
     }
+
           // ---- !daily (ежедневный бонус) ----
     if (message.content === '!daily') {
         const userId = message.author.id;
