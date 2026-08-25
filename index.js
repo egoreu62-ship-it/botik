@@ -1249,40 +1249,71 @@ startTurnTimer(); // запускаем таймер на самый первы�
         }
 
         const houseEdgeRoll = Math.random();
-let reels, winnings, resultText;
 
-if (houseEdgeRoll < 0.65) {
-    // Принудительный проигрыш — генерируем барабаны так, чтобы точно НЕ было совпадений
-    do {
-        reels = [
-            SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
-            SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
-            SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)]
-        ];
-    } while (reels[0] === reels[1] || reels[1] === reels[2] || reels[0] === reels[2]); 
-    {
-    // 65% случаев — гарантированный проигрыш, как в реальном казино
-    winnings = -bet;
-    resultText = `😔 Проигрыш: ${bet} 🪙`;
-} 
-    } else {
-    reels = [
-        SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
-        SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
-        SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)]
-    ];
+                // 1. Получаем текущий баланс игрока
+        const playerBalance = getBalance(message.author.id);
+        let winHelpChance = 0;
 
-    if (reels[0] === reels[1] && reels[1] === reels[2]) {
-        winnings = bet * 5;
-        resultText = `🎉 ДЖЕКПОТ! Выигрыш: ${winnings} 🪙`;
-    } else if (reels[0] === reels[1] || reels[1] === reels[2] || reels[0] === reels[2]) {
-        winnings = bet * 2;
-        resultText = `✨ Две одинаковые! Выигрыш: ${winnings} 🪙`;
-    } else {
-        winnings = -bet;
-        resultText = `😔 Проигрыш: ${bet} 🪙`;
-    }
-}
+        // 2. Настраиваем логику подкрутки в зависимости от баланса
+        if (playerBalance < 10000) {
+            // Если баланс меньше 10к — помогаем выиграть в 65% случаев
+            winHelpChance = 0.65; 
+        } else if (playerBalance >= 10000 && playerBalance < 50000) {
+            // От 10к до 50к — абсолютно честная игра без подкруток
+            winHelpChance = 0.00; 
+        } else {
+            // Больше 50к — включаем режим слива в 85% случаев
+            winHelpChance = -0.85; 
+        }
+
+        const houseEdgeRoll = Math.random();
+        let reels, winnings, resultText;
+
+        // 3. Выполняем подкрутку
+        if (winHelpChance > 0 && houseEdgeRoll < winHelpChance) {
+            // --- РЕЖИМ ПОМОЩИ (Гарантированный выигрыш) ---
+            if (Math.random() < 0.15) {
+                // Выдаем ДЖЕКПОТ (3 одинаковых)
+                let luckySymbol = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+                reels = [luckySymbol, luckySymbol, luckySymbol];
+            } else {
+                // Выдаем 2 одинаковых символа
+                let sym1 = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+                let sym2 = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+                while (sym1 === sym2) {
+                    sym2 = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+                }
+                reels = [sym1, sym1, sym2];
+            }
+        } else if (winHelpChance < 0 && houseEdgeRoll < Math.abs(winHelpChance)) {
+            // --- РЕЖИМ СЛИВА (Гарантированный проигрыш для богатых) ---
+            do {
+                reels = [
+                    SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
+                    SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
+                    SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)]
+                ];
+            } while (reels[0] === reels[1] || reels[1] === reels[2] || reels[0] === reels[2]);
+        } else {
+            // --- ЧЕСТНАЯ ИГРА (Когда баланс от 10к до 50к или не сработал рандом подкрутки) ---
+            reels = [
+                SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
+                SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
+                SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)]
+            ];
+        }
+
+        // 4. Проверяем получившиеся барабаны и рассчитываем награду
+        if (reels[0] === reels[1] && reels[1] === reels[2]) {
+            winnings = bet * 5;
+            resultText = `🎉 ДЖЕКПОТ! Выигрыш: ${winnings} 🪙`;
+        } else if (reels[0] === reels[1] || reels[1] === reels[2] || reels[0] === reels[2]) {
+            winnings = bet * 2;
+            resultText = `✨ Две одинаковые! Выигрыш: ${winnings} 🪙`;
+        } else {
+            winnings = -bet;
+            resultText = `😔 Проигрыш: ${bet} 🪙`;
+        }
 
 
 
