@@ -1817,6 +1817,15 @@ app.get('/', (req, res) => {
         <button onclick="addToList('whitelist')">Добавить</button>
         <div id="whitelistItems"></div>
     </div>
+    
+    <div class="card">
+        <h3 style="margin-top:0">🛒 Магазин ролей</h3>
+        <input type="text" id="shopRoleIdInput" placeholder="ID роли Discord">
+        <input type="text" id="shopRoleNameInput" placeholder="Название (для отображения)">
+        <input type="text" id="shopPriceInput" placeholder="Цена в фишках">
+        <button onclick="addShopItem()">Добавить товар</button>
+        <div id="shopItems"></div>
+    </div>
 
 <script>
 async function refreshStatus() {
@@ -2154,18 +2163,6 @@ app.delete('/api/whitelist/:id', (req, res) => {
     saveLists();
     res.json({ ok: true });
 }); 
- 
-<div class="card">
-    <h3 style="margin-top:0">🛒 Магазин ролей</h3>
-    <input type="text" id="shopRoleIdInput" placeholder="ID роли Discord">
-    <input type="text" id="shopRoleNameInput" placeholder="Название (для отображения)">
-    <input type="text" id="shopPriceInput" placeholder="Цена в фишках">
-    <button onclick="addShopItem()">Добавить товар</button>
-    <div id="shopItems"></div>
-</div>
-
-
-
 app.listen(PANEL_PORT, '127.0.0.1', () => {
     console.log(`🖥️ Панель управления запущена на порту ${PANEL_PORT} (только localhost)`);
 });
