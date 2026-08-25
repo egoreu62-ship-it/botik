@@ -60,18 +60,19 @@ function loadLists() {
             likes: parsed.likes || {}, // { userId: [{ title, url }] }
             balances: parsed.balances || {},// { userId: number }
             lastDaily: parsed.lastDaily || {},
-            redeemedPromo: parsed.redeemedPromo || []
+            redeemedPromo: parsed.redeemedPromo || [],
+            shopItems: parsed.shopItems || []
         };
     } catch (e) {
-        return { blacklist: [], whitelist: [], likes: {}, balances: {}, lastDaily: {} };
+        return { blacklist: [], whitelist: [], likes: {}, balances: {}, lastDaily: {}, shopItems: {} };
     }
 }
 
 function saveLists() {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ blacklist, whitelist, likes, balances, lastDaily,  redeemedPromo }, null, 2));
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ blacklist, whitelist, likes, balances, lastDaily,  redeemedPromo, shopItems }, null, 2));
 }
 
-let { blacklist, whitelist, likes, balances, lastDaily, redeemedPromo } = loadLists();
+let { blacklist, whitelist, likes, balances, lastDaily, redeemedPromo, shopItems } = loadLists();
 
 function getBalance(userId) {
     if (typeof balances[userId] !== 'number') balances[userId] = 1000;
@@ -1243,20 +1244,47 @@ startTurnTimer(); // запускаем таймер на самый первы�
             return;
         }
 
-        const reels = [
+        const houseEdgeRoll = Math.random();
+let reels, winnings, resultText;
+
+if (houseEdgeRoll < 0.65) {
+    // Принудительный проигрыш — генерируем барабаны так, чтобы точно НЕ было совпадений
+    do {
+        reels = [
             SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
             SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
             SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)]
         ];
-
-        let winnings, resultText;
-const houseEdgeRoll = Math.random(); // шанс "дом выигрывает" независимо от символов
-
-if (houseEdgeRoll < 0.4) {
+    } while (reels[0] === reels[1] || reels[1] === reels[2] || reels[0] === reels[2]); 
+    {
     // 65% случаев — гарантированный проигрыш, как в реальном казино
     winnings = -bet;
     resultText = `😔 Проигрыш: ${bet} 🪙`;
-} else if (reels[0] === reels[1] && reels[1] === reels[2]) {
+} 
+    } else {
+    reels = [
+        SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
+        SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
+        SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)]
+    ];
+
+    if (reels[0] === reels[1] && reels[1] === reels[2]) {
+        winnings = bet * 5;
+        resultText = `🎉 ДЖЕКПОТ! Выигрыш: ${winnings} 🪙`;
+    } else if (reels[0] === reels[1] || reels[1] === reels[2] || reels[0] === reels[2]) {
+        winnings = bet * 2;
+        resultText = `✨ Две одинаковые! Выигрыш: ${winnings} 🪙`;
+    } else {
+        winnings = -bet;
+        resultText = `😔 Проигрыш: ${bet} 🪙`;
+    }
+}
+
+
+
+
+
+else if (reels[0] === reels[1] && reels[1] === reels[2]) {
     winnings = bet * 5;
     resultText = `🎉 ДЖЕКПОТ! Выигрыш: ${winnings} 🪙`;
 } else if (reels[0] === reels[1] || reels[1] === reels[2] || reels[0] === reels[2]) {
@@ -1333,7 +1361,155 @@ if (message.content.startsWith('!promo')) {
 
     message.reply(`🎉 Промокод активирован! +${PROMO_AMOUNT} 🪙. Баланс: ${getBalance(message.author.id)} 🪙`);
     return;
-}
+} 
+
+    if (message.content === '!shop') {
+        if (shopItems.length === 0) {
+            message.reply('Магазин пуст. Владелец бота может добавить роли через веб-панель.');
+            return;
+        }
+
+        let text = '**🛒 Магазин ролей**\n\n';
+        shopItems.forEach((item, i) => {
+            text += `${i + 1}. **${item.roleName}** — ${item.price} 🪙\n`;
+        });
+        text += '\nКупить: `!buy <номер>`';
+
+        message.reply(text);
+        return;
+    }
+
+    // ---- !buy <номер> ----
+    if (message.content.startsWith('!buy')) {
+        const args = message.content.split(' ');
+        const index = parseInt(args[1]) - 1;
+
+        if (isNaN(index) || !shopItems[index]) {
+            message.reply('Напиши так: `!buy 1` (номер товара из `!shop`)');
+            return;
+        }
+
+        const item = shopItems[index];
+        const balance = getBalance(message.author.id);
+
+        if (item.price > balance) {
+            message.reply(`Недостаточно фишек! Нужно: ${item.price} 🪙, у тебя: ${balance} 🪙`);
+            return;
+        }
+
+        if (message.member.roles.cache.has(item.roleId)) {
+            message.reply('У тебя уже есть эта роль!');
+            return;
+        }
+
+        try {
+            await message.member.roles.add(item.roleId);
+            setBalance(message.author.id, balance - item.price);
+            message.reply(`✅ Куплено: **${item.roleName}**! Баланс: ${getBalance(message.author.id)} 🪙`);
+        } catch (error) {
+            console.error('Ошибка выдачи роли:', error);
+            message.reply('❌ Не получилось выдать роль. Проверь права бота (Manage Roles) и позицию его роли в списке ролей сервера.');
+        }
+        return;
+    }
+
+    // ---- !auction <номер товара> <стартовая цена> <минуты> ----
+    if (message.content.startsWith('!auction')) {
+        const args = message.content.split(' ');
+        const index = parseInt(args[1]) - 1;
+        const startPrice = parseInt(args[2]);
+        const minutes = parseInt(args[3]);
+
+        if (isNaN(index) || !shopItems[index] || !startPrice || !minutes) {
+            message.reply('Напиши так: `!auction 1 500 5` (номер товара, стартовая цена, минуты)');
+            return;
+        }
+
+        if (global.activeAuction) {
+            message.reply('Уже идёт другой аукцион, дождись его окончания.');
+            return;
+        }
+
+        const item = shopItems[index];
+
+        global.activeAuction = {
+            item,
+            highestBid: startPrice,
+            highestBidder: null,
+            channelId: message.channel.id
+        };
+
+        message.reply(
+            `🔨 **Аукцион!** Роль: **${item.roleName}**\n` +
+            `Стартовая цена: ${startPrice} 🪙\n` +
+            `Длительность: ${minutes} мин\n\n` +
+            `Ставки: \`!bid <сумма>\``
+        );
+
+        setTimeout(async () => {
+            const auction = global.activeAuction;
+            global.activeAuction = null;
+
+            if (!auction || !auction.highestBidder) {
+                message.channel.send(`🔨 Аукцион на **${auction ? auction.item.roleName : '???'}** завершён — ставок не было.`);
+                return;
+            }
+
+            const winnerBalance = getBalance(auction.highestBidder.id);
+            if (winnerBalance < auction.highestBid) {
+                message.channel.send(`🔨 Аукцион завершён, но у победителя не хватило фишек в итоге. Никто не получил роль.`);
+                return;
+            }
+
+            try {
+                await auction.highestBidder.roles.add(auction.item.roleId);
+                setBalance(auction.highestBidder.id, winnerBalance - auction.highestBid);
+                message.channel.send(
+                    `🔨 **Аукцион завершён!** Победитель: ${auction.highestBidder} — забирает **${auction.item.roleName}** за ${auction.highestBid} 🪙`
+                );
+            } catch (error) {
+                console.error('Ошибка выдачи роли по итогам аукциона:', error);
+                message.channel.send('❌ Не получилось выдать роль победителю аукциона (проверь права бота).');
+            }
+        }, minutes * 60 * 1000);
+
+        return;
+    }
+
+    // ---- !bid <сумма> ----
+    if (message.content.startsWith('!bid')) {
+        const args = message.content.split(' ');
+        const amount = parseInt(args[1]);
+
+        if (!global.activeAuction) {
+            message.reply('Сейчас нет активного аукциона.');
+            return;
+        }
+
+        if (!amount || amount <= global.activeAuction.highestBid) {
+            message.reply(`Ставка должна быть больше текущей (${global.activeAuction.highestBid} 🪙)`);
+            return;
+        }
+
+        if (amount > getBalance(message.author.id)) {
+            message.reply(`Недостаточно фишек! У тебя: ${getBalance(message.author.id)} 🪙`);
+            return;
+        }
+
+        global.activeAuction.highestBid = amount;
+        global.activeAuction.highestBidder = message.member;
+
+        message.reply(`💰 Новая ставка: ${amount} 🪙 от ${message.author}`);
+        return;
+    }
+
+
+
+
+
+
+
+
 
 
     // ---- !pay @человек <сумма> ----
@@ -1758,6 +1934,45 @@ async function loadLists() {
         '<span style="color:#6b7280;font-size:13px;">Список пуст</span>';
 }
 
+async function addShopItem() {
+    const roleId = document.getElementById('shopRoleIdInput').value.trim();
+    const roleName = document.getElementById('shopRoleNameInput').value.trim();
+    const price = parseInt(document.getElementById('shopPriceInput').value);
+
+    if (!roleId || !roleName || !price) {
+        alert('Заполни все поля');
+        return;
+    }
+
+    await fetch('/api/shop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roleId, roleName, price })
+    });
+
+    document.getElementById('shopRoleIdInput').value = '';
+    document.getElementById('shopRoleNameInput').value = '';
+    document.getElementById('shopPriceInput').value = '';
+    loadShopItems();
+}
+
+async function removeShopItem(index) {
+    await fetch('/api/shop/' + index, { method: 'DELETE' });
+    loadShopItems();
+}
+
+async function loadShopItems() {
+    const res = await fetch('/api/shop');
+    const data = await res.json();
+
+    document.getElementById('shopItems').innerHTML = data.map((item, i) =>
+        '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;font-size:13px;background:#0f1115;border-radius:8px;margin-bottom:6px;">' +
+        '<div><div style="font-weight:600;">' + item.roleName + '</div><div style="color:#6b7280;font-size:11px;">' + item.price + ' 🪙 — ID: ' + item.roleId + '</div></div>' +
+        '<button class="danger" onclick="removeShopItem(' + i + ')">Удалить</button>' +
+        '</div>'
+    ).join('') || '<span style="color:#6b7280;font-size:13px;">Магазин пуст</span>';
+}
+
 refreshStatus();
 loadLists();
 setInterval(refreshStatus, 5000);
@@ -1776,6 +1991,26 @@ app.get('/api/status', (req, res) => {
         volume: currentVolume
     });
 });
+app.get('/api/shop', (req, res) => {
+    res.json(shopItems);
+});
+
+app.post('/api/shop', (req, res) => {
+    const { roleId, roleName, price } = req.body;
+    if (!roleId || !roleName || !price) return res.status(400).json({ error: 'missing fields' });
+    shopItems.push({ roleId, roleName, price });
+    saveLists();
+    res.json({ ok: true });
+});
+
+app.delete('/api/shop/:index', (req, res) => {
+    const index = parseInt(req.params.index);
+    shopItems.splice(index, 1);
+    saveLists();
+    res.json({ ok: true });
+});
+
+
 
 // API: включить трек (используем ту же логику поиска, что и !play)
 app.post('/api/play', async (req, res) => {
@@ -1923,7 +2158,18 @@ app.delete('/api/whitelist/:id', (req, res) => {
     whitelist = whitelist.filter(uid => uid !== req.params.id);
     saveLists();
     res.json({ ok: true });
-});
+}); 
+ 
+<div class="card">
+    <h3 style="margin-top:0">🛒 Магазин ролей</h3>
+    <input type="text" id="shopRoleIdInput" placeholder="ID роли Discord">
+    <input type="text" id="shopRoleNameInput" placeholder="Название (для отображения)">
+    <input type="text" id="shopPriceInput" placeholder="Цена в фишках">
+    <button onclick="addShopItem()">Добавить товар</button>
+    <div id="shopItems"></div>
+</div>
+
+
 
 app.listen(PANEL_PORT, '127.0.0.1', () => {
     console.log(`🖥️ Панель управления запущена на порту ${PANEL_PORT} (только localhost)`);
