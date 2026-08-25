@@ -1288,16 +1288,7 @@ if (houseEdgeRoll < 0.65) {
 
 
 
-else if (reels[0] === reels[1] && reels[1] === reels[2]) {
-    winnings = bet * 5;
-    resultText = `🎉 ДЖЕКПОТ! Выигрыш: ${winnings} 🪙`;
-} else if (reels[0] === reels[1] || reels[1] === reels[2] || reels[0] === reels[2]) {
-    winnings = bet * 2;
-    resultText = `✨ Две одинаковые! Выигрыш: ${winnings} 🪙`;
-} else {
-    winnings = -bet;
-    resultText = `😔 Проигрыш: ${bet} 🪙`;
-}
+else if (reels[0] === reels[1] && reels[1] === reels[2]) 
 
         setBalance(message.author.id, balance + winnings);
 
