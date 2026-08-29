@@ -62,18 +62,23 @@ function loadLists() {
             balances: parsed.balances || {},// { userId: number }
             lastDaily: parsed.lastDaily || {},
             redeemedPromo: parsed.redeemedPromo || [],
-            shopItems: parsed.shopItems || []
+            shopItems: parsed.shopItems || [],
+            xp: parsed.xp || {},
+            lastXpMessage: parsed.lastXpMessage || {},
+            marriages: parsed.marriages || {},
+            stats: parsed.stats || {}, // { userId: { duelWins, duelStreak, casinoWins, casinoLosses, casesOpened } }
+            achievementsUnlocked: parsed.achievementsUnlocked || {}
         };
     } catch (e) {
-        return { blacklist: [], whitelist: [], likes: {}, balances: {}, lastDaily: {}, shopItems: {} };
+        return { blacklist: [], whitelist: [], likes: {}, balances: {}, lastDaily: {}, shopItems: {} xp: {}, lastXpMessage: {}, marriages: {}, stats: {},  achievementsUnlocked: {}, };
     }
 }
 
 function saveLists() {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ blacklist, whitelist, likes, balances, lastDaily,  redeemedPromo, shopItems }, null, 2));
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ blacklist, whitelist, likes, balances, lastDaily,  redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked }, null, 2));
 }
 
-let { blacklist, whitelist, likes, balances, lastDaily, redeemedPromo, shopItems } = loadLists();
+let { blacklist, whitelist, likes, balances, lastDaily, redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked } = loadLists();
 
 function getBalance(userId) {
     if (typeof balances[userId] !== 'number') balances[userId] = 1000;
@@ -83,6 +88,60 @@ function getBalance(userId) {
 function setBalance(userId, value) {
     balances[userId] = value;
     saveLists();
+}
+function getXp(userId) {
+    if (typeof xp[userId] !== 'number') xp[userId] = 0;
+    return xp[userId];
+}
+
+function addXp(userId, amount) {
+    xp[userId] = getXp(userId) + amount;
+    saveLists();
+}
+
+function getLevel(userId) {
+    return Math.floor(0.1 * Math.sqrt(getXp(userId)));
+}
+
+function xpForLevel(level) {
+    return Math.pow(level / 0.1, 2);
+}
+
+function getStats(userId) {
+    if (!stats[userId]) {
+        stats[userId] = { duelWins: 0, duelStreak: 0, casinoWins: 0, casinoLosses: 0, casesOpened: 0 };
+    }
+    return stats[userId];
+}
+
+function getShopDiscount(userId) {
+    const level = getLevel(userId);
+    return Math.min(0.3, level * 0.01); // 1% скидка за уровень, максимум 30%
+}
+
+const ACHIEVEMENTS = [
+    { id: 'duel_streak_10', name: '🔥 Непобедимый', desc: '10 побед в дуэлях подряд', reward: 5000, check: (s) => s.duelStreak >= 10 },
+    { id: 'casino_loss_50', name: '💸 Завсегдатай казино', desc: '50 проигрышей в казино', reward: 3000, check: (s) => s.casinoLosses >= 50 },
+    { id: 'casino_win_20', name: '🍀 Везунчик', desc: '20 побед в казино', reward: 4000, check: (s) => s.casinoWins >= 20 },
+    { id: 'cases_10', name: '📦 Коллекционер', desc: 'Открыл 10 кейсов', reward: 2000, check: (s) => s.casesOpened >= 10 },
+    { id: 'level_10', name: '⭐ Ветеран сервера', desc: 'Достиг 10 уровня', reward: 10000, check: (s, userId) => getLevel(userId) >= 10 }
+];
+
+async function checkAchievements(userId, message) {
+    const userStats = getStats(userId);
+    if (!achievementsUnlocked[userId]) achievementsUnlocked[userId] = [];
+
+    for (const ach of ACHIEVEMENTS) {
+        if (achievementsUnlocked[userId].includes(ach.id)) continue;
+        if (ach.check(userStats, userId)) {
+            achievementsUnlocked[userId].push(ach.id);
+            setBalance(userId, getBalance(userId) + ach.reward);
+            saveLists();
+            if (message) {
+                message.channel.send(`🏆 <@${userId}> получил достижение **${ach.name}**! +${ach.reward} 🪙`);
+            }
+        }
+    }
 }
 
 // ==== Казино: символы слотов (с весами) и гифки ====
@@ -379,6 +438,21 @@ async function joinVoice() {
         }, 10000);
     }
 }
+setInterval(async () => {
+    if (!connection) return;
+    try {
+        const guild = await client.guilds.fetch(GUILD_ID);
+        const channel = await guild.channels.fetch(currentVoiceChannelId);
+        if (!channel) return;
+
+        channel.members.forEach(member => {
+            if (member.user.bot) return;
+            addXp(member.id, 5);
+        });
+    } catch (e) {
+        // тихо игнорируем — не критично
+    }
+}, 60000);
 
 client.once('ready', async () => {
     console.log(`🤖 Бот запущен: ${client.user.tag}`);
@@ -430,6 +504,18 @@ client.on('messageCreate', async (message) => {
     // ---- Заблокированные пользователи (управляется через веб-панель) ----
     if (blacklist.includes(message.author.id)) {
         return; // просто игнорируем сообщение целиком
+    }
+        // ---- XP за активность в чате (раз в минуту максимум) ----
+    const now = Date.now();
+    if (!lastXpMessage[message.author.id] || now - lastXpMessage[message.author.id] > 60000) {
+        lastXpMessage[message.author.id] = now;
+        const oldLevel = getLevel(message.author.id);
+        addXp(message.author.id, Math.floor(Math.random() * 10) + 5);
+        const newLevel = getLevel(message.author.id);
+        if (newLevel > oldLevel) {
+            message.channel.send(`🎉 ${message.author} достиг **${newLevel} уровня**!`);
+            checkAchievements(message.author.id, message);
+        }
     }
 
     console.log(`📩 Сообщение от ${message.author.tag}: "${message.content}"`);
@@ -759,6 +845,12 @@ client.on('messageCreate', async (message) => {
             '`!casino bonus <ставка>` — бонус-бай (дороже, но выше шанс крупного куша)\n' +
             '`!blackjack <ставка>` — блэкджек\n' +
             '`!duel @соперник <ставка>` — дуэль на фишки\n\n' +
+            '`!profile [@человек]` — профиль (уровень, статистика, достижения)\n' +
+            '`!top [balance|level|casino|duels]` — топ игроков\n' +
+            '`!marry @человек` — предложение брака\n' +
+            '`!divorce` — развод\n' +
+            '`!case <цена>` — открыть кейс с призом\n' +
+            '`!achievements` — список достижений\n' +       
             '`!shop` — список ролей в магазине\n' +
             '`!buy <номер>` — купить роль из магазина\n' +
             '`!auction <номер> <цена> <минуты>` — начать аукцион на роль\n' +
@@ -992,6 +1084,218 @@ client.on('messageCreate', async (message) => {
         message.reply(`🪙 Твой баланс: ${getBalance(message.author.id)} фишек`);
         return;
     }
+     // ---- !profile [@человек] ----
+    if (message.content.startsWith('!profile')) {
+        const target = message.mentions.users.first() || message.author;
+        const level = getLevel(target.id);
+        const userXp = getXp(target.id);
+        const nextLevelXp = xpForLevel(level + 1);
+        const userStats = getStats(target.id);
+        const partnerId = marriages[target.id];
+        const unlockedCount = (achievementsUnlocked[target.id] || []).length;
+
+        const embed = new EmbedBuilder()
+            .setColor(0x5865F2)
+            .setTitle(`👤 Профиль: ${target.username}`)
+            .setThumbnail(target.displayAvatarURL())
+            .setDescription(
+                `**Баланс:** ${getBalance(target.id)} 🪙\n` +
+                `**Уровень:** ${level} (${userXp} / ${Math.floor(nextLevelXp)} XP)\n` +
+                `**В браке с:** ${partnerId ? `<@${partnerId}>` : 'ни с кем 💔'}\n\n` +
+                `**Победы в дуэлях:** ${userStats.duelWins} (серия: ${userStats.duelStreak})\n` +
+                `**Победы в казино:** ${userStats.casinoWins}\n` +
+                `**Проигрыши в казино:** ${userStats.casinoLosses}\n` +
+                `**Открыто кейсов:** ${userStats.casesOpened}\n` +
+                `**Достижений:** ${unlockedCount} / ${ACHIEVEMENTS.length}`
+            );
+
+        message.reply({ embeds: [embed] });
+        return;
+    }
+
+    // ---- !top [balance|level|casino|duels] ----
+    if (message.content.startsWith('!top')) {
+        const args = message.content.split(' ');
+        const category = args[1] || 'balance';
+
+        let entries = [];
+        let title = '';
+        let formatValue = (v) => v;
+
+        if (category === 'level') {
+            title = '⭐ Топ по уровню';
+            entries = Object.keys(xp).map(id => ({ id, value: getLevel(id) }));
+        } else if (category === 'casino') {
+            title = '🎰 Топ по победам в казино';
+            entries = Object.keys(stats).map(id => ({ id, value: getStats(id).casinoWins }));
+        } else if (category === 'duels') {
+            title = '⚔️ Топ по победам в дуэлях';
+            entries = Object.keys(stats).map(id => ({ id, value: getStats(id).duelWins }));
+        } else {
+            title = '🪙 Топ по балансу';
+            entries = Object.keys(balances).map(id => ({ id, value: getBalance(id) }));
+        }
+
+        entries = entries.filter(e => e.value > 0).sort((a, b) => b.value - a.value).slice(0, 10);
+
+        if (entries.length === 0) {
+            message.reply('Пока никого нет в этом рейтинге 🤷');
+            return;
+        }
+
+        const medals = ['🥇', '🥈', '🥉'];
+        let text = `**${title}**\n\n`;
+        entries.forEach((e, i) => {
+            text += `${medals[i] || `${i + 1}.`} <@${e.id}> — ${e.value}\n`;
+        });
+
+        message.reply(text);
+        return;
+    }
+
+    // ---- !marry @человек ----
+    if (message.content.startsWith('!marry')) {
+        const target = message.mentions.users.first();
+
+        if (!target || target.bot || target.id === message.author.id) {
+            message.reply('Напиши так: `!marry @человек`');
+            return;
+        }
+
+        if (marriages[message.author.id]) {
+            message.reply(`Ты уже в браке с <@${marriages[message.author.id]}>! Сначала \`!divorce\`.`);
+            return;
+        }
+
+        if (marriages[target.id]) {
+            message.reply(`${target} уже состоит в браке с кем-то другим 💔`);
+            return;
+        }
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('marry_accept').setLabel('💍 Да!').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('marry_decline').setLabel('Отказать').setStyle(ButtonStyle.Danger)
+        );
+
+        const proposalMsg = await message.reply({
+            content: `💍 ${message.author} делает предложение ${target}! Что скажешь?`,
+            components: [row]
+        });
+
+        try {
+            const confirmation = await proposalMsg.awaitMessageComponent({
+                componentType: ComponentType.Button,
+                time: 60000,
+                filter: (i) => i.user.id === target.id
+            });
+
+            if (confirmation.customId === 'marry_decline') {
+                await confirmation.update({ content: `${target} отказал(а) ${message.author} 💔`, components: [] });
+                return;
+            }
+
+            marriages[message.author.id] = target.id;
+            marriages[target.id] = message.author.id;
+            saveLists();
+
+            await confirmation.update({
+                content: `💒 ${message.author} и ${target} теперь женаты! Поздравляем! 🎉`,
+                components: []
+            });
+        } catch (e) {
+            await proposalMsg.edit({ content: '⏱️ Предложение не было принято вовремя', components: [] }).catch(() => {});
+        }
+        return;
+    }
+
+    // ---- !divorce ----
+    if (message.content === '!divorce') {
+        const partnerId = marriages[message.author.id];
+
+        if (!partnerId) {
+            message.reply('Ты не в браке 🤷');
+            return;
+        }
+
+        delete marriages[message.author.id];
+        delete marriages[partnerId];
+        saveLists();
+
+        message.reply(`💔 ${message.author} развёлся с <@${partnerId}>`);
+        return;
+    }
+
+    // ---- !case <ставка> (лутбокс) ----
+    const CASE_REWARDS = [
+        { label: 'Пусто', weight: 30, amount: 0 },
+        { label: 'Немного фишек', weight: 30, amount: 1 }, // множитель от цены кейса
+        { label: 'Средний приз', weight: 25, amount: 2 },
+        { label: 'Хороший приз', weight: 10, amount: 5 },
+        { label: 'ДЖЕКПОТ', weight: 5, amount: 15 }
+    ];
+
+    if (message.content.startsWith('!case')) {
+        const args = message.content.split(' ');
+        const cost = parseInt(args[1]);
+
+        if (!cost || cost <= 0) {
+            message.reply('Напиши так: `!case 500` (цена кейса — чем дороже, тем выше потенциальный приз)');
+            return;
+        }
+
+        const balance = getBalance(message.author.id);
+        if (cost > balance) {
+            message.reply(`Недостаточно фишек! У тебя: ${balance} 🪙`);
+            return;
+        }
+
+        const totalWeight = CASE_REWARDS.reduce((sum, r) => sum + r.weight, 0);
+        let roll = Math.random() * totalWeight;
+        let picked = CASE_REWARDS[0];
+        for (const r of CASE_REWARDS) {
+            if (roll < r.weight) { picked = r; break; }
+            roll -= r.weight;
+        }
+
+        const reward = Math.floor(cost * picked.amount);
+        setBalance(message.author.id, balance - cost + reward);
+
+        const userStats = getStats(message.author.id);
+        userStats.casesOpened++;
+        saveLists();
+        checkAchievements(message.author.id, message);
+
+        const isProfit = reward > cost;
+        const embed = new EmbedBuilder()
+            .setColor(isProfit ? 0x00ff00 : 0x808080)
+            .setTitle('📦 Открытие кейса')
+            .setDescription(
+                `Цена кейса: ${cost} 🪙\n` +
+                `Выпало: **${picked.label}**\n` +
+                `Получено: ${reward} 🪙\n\n` +
+                `Баланс: ${getBalance(message.author.id)} 🪙`
+            );
+
+        message.reply({ embeds: [embed] });
+        return;
+    }
+
+    // ---- !achievements ----
+    if (message.content === '!achievements') {
+        const unlocked = achievementsUnlocked[message.author.id] || [];
+
+        let text = '**🏆 Достижения**\n\n';
+        ACHIEVEMENTS.forEach(ach => {
+            const done = unlocked.includes(ach.id);
+            text += `${done ? '✅' : '🔒'} **${ach.name}** — ${ach.desc} (награда: ${ach.reward} 🪙)\n`;
+        });
+
+        message.reply(text);
+        return;
+    }
+
+
+    
 
     // ---- !ttt @соперник (крестики-нолики) ----
     if (message.content.startsWith('!ttt')) {
@@ -1400,7 +1704,12 @@ if (gridResult.totalWinnings > 0) {
         const { totalWinnings, winningRows } = calculateGridWin(grid, bet);
         const winnings = totalWinnings > 0 ? totalWinnings : -bet;
 
-        setBalance(message.author.id, balance + winnings);
+               setBalance(message.author.id, balance + winnings);
+
+        const casinoStats = getStats(message.author.id);
+        if (isWin) casinoStats.casinoWins++; else casinoStats.casinoLosses++;
+        saveLists();
+        checkAchievements(message.author.id, message);
 
         const isWin = totalWinnings > 0;
         let resultText;
@@ -1503,10 +1812,12 @@ if (message.content.startsWith('!promo')) {
             return;
         }
 
-        const item = shopItems[index];
+               const item = shopItems[index];
         const balance = getBalance(message.author.id);
+        const discount = getShopDiscount(message.author.id);
+        const finalPrice = Math.floor(item.price * (1 - discount));
 
-        if (item.price > balance) {
+        if (finalPrice > balance) {
             message.reply(`Недостаточно фишек! Нужно: ${item.price} 🪙, у тебя: ${balance} 🪙`);
             return;
         }
@@ -1517,9 +1828,9 @@ if (message.content.startsWith('!promo')) {
         }
 
         try {
-            await message.member.roles.add(item.roleId);
-            setBalance(message.author.id, balance - item.price);
-            message.reply(`✅ Куплено: **${item.roleName}**! Баланс: ${getBalance(message.author.id)} 🪙`);
+             await message.member.roles.add(item.roleId);
+            setBalance(message.author.id, balance - finalPrice);
+            message.reply(`✅ Куплено: **${item.roleName}**! ${discount > 0 ? `(скидка ${Math.round(discount * 100)}%) ` : ''}Баланс: ${getBalance(message.author.id)} 🪙`);
         } catch (error) {
             console.error('Ошибка выдачи роли:', error);
             message.reply('❌ Не получилось выдать роль. Проверь права бота (Manage Roles) и позицию его роли в списке ролей сервера.');
@@ -1716,11 +2027,18 @@ if (message.content.startsWith('!duel')) {
             return;
         }
 
-        const winner = Math.random() < 0.5 ? message.author : opponent;
+               const winner = Math.random() < 0.5 ? message.author : opponent;
         const loser = winner.id === message.author.id ? opponent : message.author;
 
         setBalance(winner.id, getBalance(winner.id) + bet);
         setBalance(loser.id, getBalance(loser.id) - bet);
+
+        const winnerStats = getStats(winner.id);
+        winnerStats.duelWins++;
+        winnerStats.duelStreak++;
+        getStats(loser.id).duelStreak = 0;
+        saveLists();
+        checkAchievements(winner.id, interaction);
 
         await interaction.update({
             content: `⚔️ Дуэль окончена! 🏆 Победил ${winner} и забирает ${bet} 🪙 у ${loser}.\n` +
