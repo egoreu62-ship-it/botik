@@ -89,12 +89,12 @@ function setBalance(userId, value) {
 // weight — как часто выпадает (больше = чаще), value — множитель ценности
 // Замени symbol на свои кастомные эмодзи-гифки в формате '<a:название:ID>'
 const SLOT_REEL_SYMBOLS = [
-    { symbol: '🍒', weight: 30, value: 1 },
-    { symbol: '🍋', weight: 25, value: 1.5 },
-    { symbol: '🔔', weight: 20, value: 2 },
-    { symbol: '⭐', weight: 15, value: 4 },
-    { symbol: '💎', weight: 8, value: 8 },
-    { symbol: '7️⃣', weight: 2, value: 20 }
+    { symbol: '🍒', weight: 30, value: 0.8 },
+    { symbol: '🍋', weight: 25, value: 1 },
+    { symbol: '🔔', weight: 20, value: 1.3 },
+    { symbol: '⭐', weight: 15, value: 2 },
+    { symbol: '💎', weight: 8, value: 3 },
+    { symbol: '7️⃣', weight: 2, value: 5 }
 ];
 
 function pickWeightedSymbol() {
@@ -148,7 +148,7 @@ function calculateGridWin(grid, bet, roundMultiplier = 1) {
         });
 
         if (bestCount >= 3) {
-            const countMultiplier = bestCount === 5 ? 10 : bestCount === 4 ? 3 : 1;
+            const countMultiplier = bestCount === 5 ? 3 : bestCount === 4 ? 1.5 : 1;
             const rowWinnings = Math.floor(bet * bestValue * countMultiplier * roundMultiplier);
             totalWinnings += rowWinnings;
             winningRows.push({ row: r, matchCount: bestCount, symbol: bestSymbol, winnings: rowWinnings });
