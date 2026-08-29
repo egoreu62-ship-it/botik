@@ -126,24 +126,37 @@ function calculateGridWin(grid, bet, roundMultiplier = 1) {
 
     for (let r = 0; r < grid.length; r++) {
         const row = grid[r];
-        const first = row[0];
-        let matchCount = 1;
-        for (let i = 1; i < row.length; i++) {
-            if (row[i].symbol === first.symbol) matchCount++;
-            else break;
-        }
 
-        if (matchCount >= 3) {
-            const countMultiplier = matchCount === 5 ? 10 : matchCount === 4 ? 3 : 1;
-            const rowWinnings = Math.floor(bet * first.value * countMultiplier * roundMultiplier);
+        // Считаем, сколько раз встречается каждый символ в строке (в любом порядке)
+        const counts = {};
+        row.forEach(s => {
+            counts[s.symbol] = (counts[s.symbol] || 0) + 1;
+        });
+
+        // Находим символ с наибольшим количеством повторов
+        let bestSymbol = null;
+        let bestCount = 0;
+        let bestValue = 0;
+
+        row.forEach(s => {
+            const c = counts[s.symbol];
+            if (c > bestCount) {
+                bestCount = c;
+                bestSymbol = s;
+                bestValue = s.value;
+            }
+        });
+
+        if (bestCount >= 3) {
+            const countMultiplier = bestCount === 5 ? 10 : bestCount === 4 ? 3 : 1;
+            const rowWinnings = Math.floor(bet * bestValue * countMultiplier * roundMultiplier);
             totalWinnings += rowWinnings;
-            winningRows.push({ row: r, matchCount, symbol: first, winnings: rowWinnings });
+            winningRows.push({ row: r, matchCount: bestCount, symbol: bestSymbol, winnings: rowWinnings });
         }
     }
 
     return { totalWinnings, winningRows };
 }
-
 function formatGrid(grid) {
     return grid.map(row => row.map(s => s.symbol).join(' | ')).join('\n');
 }
@@ -1350,7 +1363,7 @@ if (gridResult.totalWinnings > 0) {
         const houseEdgeRoll = Math.random();
         let grid;
 
-        if (houseEdgeRoll < 0.45) {
+        if (houseEdgeRoll < 0.3) {
             // Принудительный проигрыш — перегенерируем, пока нет ни одной выигрышной строки
             let attempt;
             do {
