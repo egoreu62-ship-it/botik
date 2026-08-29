@@ -1363,7 +1363,7 @@ if (gridResult.totalWinnings > 0) {
         const houseEdgeRoll = Math.random();
         let grid;
 
-        if (houseEdgeRoll < 0.3) {
+        if (houseEdgeRoll < 0.15) {
             // Принудительный проигрыш — перегенерируем, пока нет ни одной выигрышной строки
             let attempt;
             do {
