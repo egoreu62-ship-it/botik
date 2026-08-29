@@ -1561,7 +1561,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
    
         // ---- !casino bonus <ставка> (10 бесплатных прокруток с накоплением) ----
     const BONUS_BUY_COST_MULTIPLIER = 20;
-    const BONUS_SPINS_COUNT = 5;
+    const BONUS_SPINS_COUNT = 10;
 
     if (message.content.startsWith('!casino bonus')) {
         const args = message.content.split(' ');
