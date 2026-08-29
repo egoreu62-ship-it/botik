@@ -70,7 +70,7 @@ function loadLists() {
             achievementsUnlocked: parsed.achievementsUnlocked || {}
         };
     } catch (e) {
-        return { blacklist: [], whitelist: [], likes: {}, balances: {}, lastDaily: {}, shopItems: {} xp: {}, lastXpMessage: {}, marriages: {}, stats: {},  achievementsUnlocked: {}, };
+        return { blacklist: [], whitelist: [], likes: {}, balances: {}, lastDaily: {}, shopItems: {}, xp: {}, lastXpMessage: {}, marriages: {}, stats: {},  achievementsUnlocked: {}, };
     }
 }
 
