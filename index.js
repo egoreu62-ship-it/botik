@@ -1703,15 +1703,17 @@ if (gridResult.totalWinnings > 0) {
 
         const { totalWinnings, winningRows } = calculateGridWin(grid, bet);
         const winnings = totalWinnings > 0 ? totalWinnings : -bet;
+        const isWin = totalWinnings > 0; // Оставили только здесь
 
-               setBalance(message.author.id, balance + winnings);
+        setBalance(message.author.id, balance + winnings);
 
         const casinoStats = getStats(message.author.id);
         if (isWin) casinoStats.casinoWins++; else casinoStats.casinoLosses++;
         saveLists();
         checkAchievements(message.author.id, message);
 
-        const isWin = totalWinnings > 0;
+        // Второе объявление const isWin отсюда полностью удалено
+
         let resultText;
         if (isWin) {
             resultText = winningRows.map(w => `Строка ${w.row + 1}: ${w.matchCount} подряд (${w.symbol.symbol}) — +${w.winnings} 🪙`).join('\n');
@@ -1733,6 +1735,7 @@ if (gridResult.totalWinnings > 0) {
         });
         return;
     }
+
 
           // ---- !daily (ежедневный бонус) ----
     if (message.content === '!daily') {
