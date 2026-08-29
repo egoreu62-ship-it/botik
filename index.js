@@ -1560,7 +1560,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
 
    
         // ---- !casino bonus <ставка> (10 бесплатных прокруток с накоплением) ----
-    const BONUS_BUY_COST_MULTIPLIER = 30;
+    const BONUS_BUY_COST_MULTIPLIER = 20;
     const BONUS_SPINS_COUNT = 5;
 
     if (message.content.startsWith('!casino bonus')) {
@@ -1600,7 +1600,7 @@ const gridResult = calculateGridWin(grid, bet, roundMultiplier);
 if (gridResult.totalWinnings > 0) {
     totalWinnings += gridResult.totalWinnings;
     log += `**Спин ${i}** +${gridResult.totalWinnings} 🪙 (×${roundMultiplier.toFixed(1)})\n`;
-    roundMultiplier += 0.05;
+    roundMultiplier += 0.10;
 } else {
     log += `**Спин ${i}** —\n`;
 }
