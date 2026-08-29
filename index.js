@@ -1600,7 +1600,7 @@ const gridResult = calculateGridWin(grid, bet, roundMultiplier);
 if (gridResult.totalWinnings > 0) {
     totalWinnings += gridResult.totalWinnings;
     log += `**Спин ${i}** +${gridResult.totalWinnings} 🪙 (×${roundMultiplier.toFixed(1)})\n`;
-    roundMultiplier += 0.15;
+    roundMultiplier += 0.25;
 } else {
     log += `**Спин ${i}** —\n`;
 }
