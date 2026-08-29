@@ -37,6 +37,7 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildVoiceStates
     ]
 });
@@ -84,17 +85,72 @@ function setBalance(userId, value) {
     saveLists();
 }
 
-// ==== Казино: символы слотов и гифки ====
-// Замени на свои ссылки/эмодзи. Для кастомных эмодзи Discord формат: '<:название:ID>' или '<a:название:ID>' для анимированных
-const SLOT_SYMBOLS = [
-    '🍒', // замени
-    '🍋', // замени
-    '🔔', // замени
-    '⭐', // замени
-    '💎', // замени
-    '7️⃣' // замени
+// ==== Казино: символы слотов (с весами) и гифки ====
+// weight — как часто выпадает (больше = чаще), value — множитель ценности
+// Замени symbol на свои кастомные эмодзи-гифки в формате '<a:название:ID>'
+const SLOT_REEL_SYMBOLS = [
+    { symbol: '🍒', weight: 30, value: 1 },
+    { symbol: '🍋', weight: 25, value: 1.5 },
+    { symbol: '🔔', weight: 20, value: 2 },
+    { symbol: '⭐', weight: 15, value: 4 },
+    { symbol: '💎', weight: 8, value: 8 },
+    { symbol: '7️⃣', weight: 2, value: 20 }
 ];
 
+function pickWeightedSymbol() {
+    const totalWeight = SLOT_REEL_SYMBOLS.reduce((sum, s) => sum + s.weight, 0);
+    let roll = Math.random() * totalWeight;
+    for (const s of SLOT_REEL_SYMBOLS) {
+        if (roll < s.weight) return s;
+        roll -= s.weight;
+    }
+    return SLOT_REEL_SYMBOLS[0];
+}
+
+const SLOT_COLS = 5;
+const SLOT_ROWS = 3;
+
+// Сетка: массив строк, каждая строка — массив символов (слева направо)
+function spinGrid() {
+    const grid = [];
+    for (let r = 0; r < SLOT_ROWS; r++) {
+        grid.push(Array.from({ length: SLOT_COLS }, () => pickWeightedSymbol()));
+    }
+    return grid;
+}
+
+// Проверяет выигрыш по каждой горизонтальной линии (строке) отдельно, суммирует
+function calculateGridWin(grid, bet, roundMultiplier = 1) {
+    let totalWinnings = 0;
+    const winningRows = [];
+
+    for (let r = 0; r < grid.length; r++) {
+        const row = grid[r];
+        const first = row[0];
+        let matchCount = 1;
+        for (let i = 1; i < row.length; i++) {
+            if (row[i].symbol === first.symbol) matchCount++;
+            else break;
+        }
+
+        if (matchCount >= 3) {
+            const countMultiplier = matchCount === 5 ? 10 : matchCount === 4 ? 3 : 1;
+            const rowWinnings = Math.floor(bet * first.value * countMultiplier * roundMultiplier);
+            totalWinnings += rowWinnings;
+            winningRows.push({ row: r, matchCount, symbol: first, winnings: rowWinnings });
+        }
+    }
+
+    return { totalWinnings, winningRows };
+}
+
+function formatGrid(grid) {
+    return grid.map(row => row.map(s => s.symbol).join(' | ')).join('\n');
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 // Вставь сюда 10+ ссылок на гифки для победы
 const WIN_GIFS = [
     'https://cdn.discordapp.com/emojis/1540807221707939860.webp?size=96',
@@ -329,6 +385,19 @@ client.once('ready', async () => {
 
     await joinVoice();
 });
+
+client.on('guildMemberAdd', async (member) => {
+    const autoRoleId = process.env.AUTOROLE_ID;
+    if (!autoRoleId) return;
+
+    try {
+        await member.roles.add(autoRoleId);
+        console.log(`✅ Роль выдана новому участнику: ${member.user.tag}`);
+    } catch (error) {
+        console.error('Ошибка автовыдачи роли:', error);
+    }
+});
+
 
 client.login(TOKEN);
 
@@ -1172,12 +1241,10 @@ startTurnTimer(); // запускаем таймер на самый первы�
         return;
     }
 
-    // ---- !casino <ставка> ----
-
-        // ---- !casino bonus <ставка> (бонус-бай) ----
-    const BONUS_BUY_COST_MULTIPLIER = 20; // цена входа = ставка × 20
-    const BONUS_BUY_MIN_MULTIPLIER = 5;
-    const BONUS_BUY_MAX_MULTIPLIER = 100;
+   
+        // ---- !casino bonus <ставка> (10 бесплатных прокруток с накоплением) ----
+    const BONUS_BUY_COST_MULTIPLIER = 20;
+    const BONUS_SPINS_COUNT = 10;
 
     if (message.content.startsWith('!casino bonus')) {
         const args = message.content.split(' ');
@@ -1198,42 +1265,66 @@ startTurnTimer(); // запускаем таймер на самый первы�
 
         setBalance(message.author.id, balance - cost);
 
-        // Взвешенный рандом: чаще небольшой множитель, редко — джекпот
-        const roll = Math.random();
-        let multiplier;
-        if (roll < 0.60) {
-            multiplier = BONUS_BUY_MIN_MULTIPLIER + Math.random() * 5; // 5x-10x, часто
-        } else if (roll < 0.90) {
-            multiplier = 10 + Math.random() * 15; // 10x-25x
-        } else {
-            multiplier = 25 + Math.random() * (BONUS_BUY_MAX_MULTIPLIER - 25); // 25x-50x, редкий джекпот
+        const bonusMsg = await message.reply({
+            embeds: [new EmbedBuilder()
+                .setColor(0xffaa00)
+                .setTitle('🎰💰 Бонус-раунд начался!')
+                .setDescription(`Оплачено: ${cost} 🪙\nПрокруток: ${BONUS_SPINS_COUNT}\n\nКрутим...`)]
+        });
+
+        let totalWinnings = 0;
+        let roundMultiplier = 1;
+        let log = '';
+
+        for (let i = 1; i <= BONUS_SPINS_COUNT; i++) {
+           const grid = spinGrid();
+const gridResult = calculateGridWin(grid, bet, roundMultiplier);
+
+if (gridResult.totalWinnings > 0) {
+    totalWinnings += gridResult.totalWinnings;
+    log += `**Спин ${i}** +${gridResult.totalWinnings} 🪙 (×${roundMultiplier.toFixed(1)})\n`;
+    roundMultiplier += 0.5;
+} else {
+    log += `**Спин ${i}** —\n`;
+}
+
+            await bonusMsg.edit({
+                embeds: [new EmbedBuilder()
+                    .setColor(0xffaa00)
+                    .setTitle('🎰💰 Бонус-раунд')
+                    .setDescription(`${log}\nНакоплено: ${totalWinnings} 🪙`)]
+            });
+
+            await sleep(1200);
         }
 
-        const winnings = Math.floor(bet * multiplier);
-        setBalance(message.author.id, getBalance(message.author.id) + winnings);
+        setBalance(message.author.id, getBalance(message.author.id) + totalWinnings);
 
-        const net = winnings - cost;
+        const net = totalWinnings - cost;
         const isProfit = net > 0;
-
         const gif = isProfit
             ? WIN_GIFS[Math.floor(Math.random() * WIN_GIFS.length)]
             : LOSE_GIFS[Math.floor(Math.random() * LOSE_GIFS.length)];
 
-        const embed = new EmbedBuilder()
-            .setColor(isProfit ? 0x00ff00 : 0xff0000)
-            .setTitle('🎰💰 Бонус-бай')
-            .setDescription(
-                `Заплачено за вход: ${cost} 🪙\n` +
-                `Выигрыш в бонусе: ${winnings} 🪙 (×${multiplier.toFixed(1)})\n\n` +
-                `${isProfit ? '🎉 В плюсе на' : '😔 В минусе на'} ${Math.abs(net)} 🪙\n\n` +
-                `Баланс: ${getBalance(message.author.id)} 🪙`
-            )
-            .setImage(gif);
-
-        message.reply({ embeds: [embed] });
+        await bonusMsg.edit({
+            embeds: [new EmbedBuilder()
+                .setColor(isProfit ? 0x00ff00 : 0xff0000)
+                .setTitle('🎰💰 Бонус-раунд завершён!')
+                .setDescription(
+                    `${log}\n` +
+                    `Оплачено: ${cost} 🪙\n` +
+                    `Всего выиграно: ${totalWinnings} 🪙\n\n` +
+                    `${isProfit ? '🎉 В плюсе на' : '😔 В минусе на'} ${Math.abs(net)} 🪙\n\n` +
+                    `Баланс: ${getBalance(message.author.id)} 🪙`
+                )
+                .setImage(gif)]
+        });
         return;
     }
-               if (message.content.startsWith('!casino')) {
+
+    
+       // ---- !casino <ставка> ----
+    if (message.content.startsWith('!casino')) {
         const args = message.content.split(' ');
         const bet = parseInt(args[1]);
 
@@ -1247,99 +1338,77 @@ startTurnTimer(); // запускаем таймер на самый первы�
             message.reply(`Недостаточно фишек! У тебя: ${balance} 🪙`);
             return;
         }
-                           // 📈 ДИНАМИЧЕСКИЙ ЛИМИТ СТАВКИ
-        // Новички могут ставить 500. Богачи — больше (500 + 10% от их баланса)
+
         let dynamicMaxBet = Math.floor(500 + (balance * 0.10));
-        
-        // Но ставка не может быть выше 10 000 фишек (абсолютный потолок)
-        if (dynamicMaxBet > 10000) {
-            dynamicMaxBet = 10000;
-        }
+        if (dynamicMaxBet > 10000) dynamicMaxBet = 10000;
 
         if (bet > dynamicMaxBet) {
-            message.reply(`❌ Твой лимит ставки сейчас — не больше ${dynamicMaxBet} 🪙! (Лимит растет вместе с балансом)`);
+            message.reply(`❌ Твой лимит ставки сейчас — не больше ${dynamicMaxBet} 🪙! (Лимит растёт вместе с балансом)`);
             return;
         }
 
-
-        const playerBalance = getBalance(message.author.id);
         const houseEdgeRoll = Math.random();
-        let reels, winnings, resultText;
+        let grid;
 
-        // 🎲 ДИНАМИЧЕСКАЯ СИСТЕМА УДАЧИ (КАК В РЕАЛЬНОМ КАЗИНО)
-        // Рассчитываем динамический шанс помощи на основе баланса.
-        // Чем больше баланс, тем меньше бот помогает.
-        let winHelpChance = 0;
-
-        if (playerBalance < 15000) {
-            // Формула плавного снижения: на 2000 баланса шанс помощи ~75%, на 10000 ~20%
-            winHelpChance = 0.85 - (playerBalance / 18000); 
-            if (winHelpChance < 0.05) winHelpChance = 0.05; // Минимальная помощь останется всегда
-        } else {
-            // Если баланс уже большой, включается скрытый сбор казино (House Edge)
-            // Но не 100% слив, а просто легкое занижение шанса (на 15-20%), чтобы игрок чувствовал "качели"
-            winHelpChance = -0.18; 
-        }
-
-        // 3. Выполнение прокрутки с учетом динамического рандома
-        if (winHelpChance > 0 && houseEdgeRoll < winHelpChance) {
-            // --- РЕЖИМ ЛЕГКОГО РАЗГРЕВА (Помогаем подняться) ---
-            if (Math.random() < 0.12) { // 12% на джекпот в режиме помощи
-                let luckySymbol = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
-                reels = [luckySymbol, luckySymbol, luckySymbol];
-            } else {
-                let sym1 = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
-                let sym2 = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
-                while (sym1 === sym2) {
-                    sym2 = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
-                }
-                reels = [sym1, sym1, sym2];
-            }
-        } else if (winHelpChance < 0 && houseEdgeRoll < Math.abs(winHelpChance)) {
-            // --- РЕЖИМ СДЕРЖИВАНИЯ (Казино забирает маржу, создавая трудности) ---
+        if (houseEdgeRoll < 0.45) {
+            // Принудительный проигрыш — перегенерируем, пока нет ни одной выигрышной строки
+            let attempt;
             do {
-                reels = [
-                    SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
-                    SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
-                    SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)]
-                ];
-            } while (reels[0] === reels[1] || reels[1] === reels[2] || reels[0] === reels[2]);
+                attempt = spinGrid();
+            } while (calculateGridWin(attempt, bet).totalWinnings > 0);
+            grid = attempt;
         } else {
-            // --- ЧИСТЫЙ МАТЕМАТИЧЕСКИЙ РАНДОМ ---
-            reels = [
-                SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
-                SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
-                SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)]
-            ];
+            grid = spinGrid();
         }
 
-        // 4. Проверка совпадений
-        if (reels[0] === reels[1] && reels[1] === reels[2]) {
-            winnings = bet * 5;
-            resultText = `🎉 ДЖЕКПОТ! Выигрыш: ${winnings} 🪙`;
-        } else if (reels[0] === reels[1] || reels[1] === reels[2] || reels[0] === reels[2]) {
-            winnings = bet * 2;
-            resultText = `✨ Две одинаковые! Выигрыш: ${winnings} 🪙`;
+        const spinMsg = await message.reply({
+            embeds: [new EmbedBuilder()
+                .setColor(0x5865F2)
+                .setTitle('🎰 Казино')
+                .setDescription('🎲 🎲 🎲 🎲 🎲\n🎲 🎲 🎲 🎲 🎲\n🎲 🎲 🎲 🎲 🎲\n\nКрутим барабаны...')]
+        });
+
+        // Анимация: барабаны останавливаются по одному, слева направо
+        for (let col = 1; col <= SLOT_COLS; col++) {
+            await sleep(400);
+            let frame = '';
+            for (let r = 0; r < SLOT_ROWS; r++) {
+                const rowStr = grid[r].map((s, i) => i < col ? s.symbol : '🎲').join(' | ');
+                frame += rowStr + '\n';
+            }
+            await spinMsg.edit({
+                embeds: [new EmbedBuilder()
+                    .setColor(0x5865F2)
+                    .setTitle('🎰 Казино')
+                    .setDescription(frame + (col < SLOT_COLS ? '\nКрутим барабаны...' : ''))]
+            });
+        }
+
+        const { totalWinnings, winningRows } = calculateGridWin(grid, bet);
+        const winnings = totalWinnings > 0 ? totalWinnings : -bet;
+
+        setBalance(message.author.id, balance + winnings);
+
+        const isWin = totalWinnings > 0;
+        let resultText;
+        if (isWin) {
+            resultText = winningRows.map(w => `Строка ${w.row + 1}: ${w.matchCount} подряд (${w.symbol.symbol}) — +${w.winnings} 🪙`).join('\n');
+            resultText += `\n\n🎉 Выигрыш: ${totalWinnings} 🪙`;
         } else {
-            winnings = -bet;
             resultText = `😔 Проигрыш: ${bet} 🪙`;
         }
 
-        // 5. Сохранение баланса
-        setBalance(message.author.id, balance + winnings);
-
-        const isWin = winnings > 0;
         const gif = isWin
             ? WIN_GIFS[Math.floor(Math.random() * WIN_GIFS.length)]
             : LOSE_GIFS[Math.floor(Math.random() * LOSE_GIFS.length)];
 
-        const embed = new EmbedBuilder()
-            .setColor(isWin ? 0x00ff00 : 0xff0000)
-            .setTitle('🎰 Казино')
-            .setDescription(`[ ${reels.join(' | ')} ]\n\n${resultText}\n\nБаланс: ${getBalance(message.author.id)} 🪙`)
-            .setImage(gif);
-
-        message.reply({ embeds: [embed] });
+        await spinMsg.edit({
+            embeds: [new EmbedBuilder()
+                .setColor(isWin ? 0x00ff00 : 0xff0000)
+                .setTitle('🎰 Казино')
+                .setDescription(`${formatGrid(grid)}\n\n${resultText}\n\nБаланс: ${getBalance(message.author.id)} 🪙`)
+                .setImage(gif)]
+        });
         return;
     }
 
