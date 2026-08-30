@@ -88,6 +88,8 @@ let { blacklist, whitelist, likes, balances, lastDaily, redeemedPromo, shopItems
 // ==== Системы Кулдаунов (Ограничения по времени) ====
 const casinoCooldowns = new Map(); // { userId: timestamp }
 const caseCooldowns = new Map();   // { userId: { timestamps: [], blockedUntil: null } }
+const gymTracker = new Map(); // { userId: { count: 0, resetTime: 0 } }
+
 
 
 function getBalance(userId) {
@@ -201,10 +203,14 @@ const WEIGHT_DEFAULT = 70;
 
 function getBodyStats(userId) {
     if (!bodyStats[userId]) {
-        bodyStats[userId] = { weight: WEIGHT_DEFAULT, chest: 10, arms: 10, legs: 10 };
+        bodyStats[userId] = { weight: WEIGHT_DEFAULT, chest: 10, arms: 10, legs: 10, cardio: 10 }; // <-- ДОБАВИЛИ cardio: 10
     }
+    // На случай, если у старых игроков этого поля еще нет в JSON:
+    if (typeof bodyStats[userId].cardio !== 'number') bodyStats[userId].cardio = 10;
+    
     return bodyStats[userId];
 }
+
 
 // ==== Беременность ====
 // Таблица "фрукт по неделям" (упрощённая, как в тик-токе)
@@ -1094,8 +1100,8 @@ if (message.content === '!help') {
         '`!weight [@человек]` — параметры тела\n' +
         '`!eat <предмет>` — поесть\n' +
         '`!gym <chest|arms|legs>` — тренировка\n\n' +   
-       '` !givekid <имя> <предмет> — дать ребенку еду/игрушку (выполнить каприз).\n' +
-       '` !renamekid <старое имя> = <новое имя> — переименовать ребенка (нужно согласие супруга).\n' +
+        '` !givekid <имя> <предмет> — дать ребенку еду/игрушку (выполнить каприз).\n' +
+        '` !renamekid <старое имя> = <новое имя> — переименовать ребенка (нужно согласие супруга).\n' 
         '**🔧 Другое**\n' +
         '`!test` — тестовый сигнал'
     ];
@@ -1828,7 +1834,8 @@ if (message.content === '!help') {
             `Вес: ${body.weight} кг\n` +
             `💪 Грудь: ${body.chest}\n` +
             `💪 Руки: ${body.arms}\n` +
-            `🦵 Ноги: ${body.legs}`
+            `🦵 Ноги: ${body.legs}`+
+            `🏃 Кардио: ${body.cardio}` // <-- Добавили вывод кардио
         );
         return;
     }
@@ -1872,33 +1879,78 @@ if (message.content === '!help') {
         return;
     }
 
-    // ---- !gym <chest|arms|legs> ----
+    
+        // ---- !gym <chest|arms|legs|cardio> ----
     if (message.content.startsWith('!gym')) {
         const args = message.content.split(' ');
         const part = args[1];
 
-        if (!['chest', 'arms', 'legs'].includes(part)) {
-            message.reply('Напиши так: `!gym chest`, `!gym arms` или `!gym legs`');
+        if (!['chest', 'arms', 'legs', 'cardio'].includes(part)) {
+            message.reply('Напиши так: `!gym chest`, `!gym arms`, `!gym legs` или `!gym cardio`');
             return;
         }
 
-        const body = getBodyStats(message.author.id);
-        body[part] += Math.floor(Math.random() * 3) + 1;
-        body.weight = Math.max(WEIGHT_MIN, body.weight - 1);
+        const userId = message.author.id;
+        const now = Date.now();
+        const HOUR_MS = 60 * 60 * 1000; // 1 час кулдауна
+
+        // Инициализируем счетчик тренировок для пользователя
+        if (!gymTracker.has(userId)) {
+            gymTracker.set(userId, { count: 0, resetTime: 0 });
+        }
+
+        const userGym = gymTracker.get(userId);
+
+        // Проверяем, не заблокирована ли качалка
+        if (userGym.count >= 5) {
+            if (now < userGym.resetTime) {
+                const remaining = Math.ceil((userGym.resetTime - now) / 1000);
+                const minLeft = Math.floor(remaining / 60);
+                const secLeft = remaining % 60;
+                message.reply(`❌ Мышцы забились! Ты потренировался 5 раз. Отдых в качалке ещё **${minLeft}м ${secLeft}с** 💪`);
+                return;
+            } else {
+                // Время КД прошло — сбрасываем счетчик
+                userGym.count = 0;
+                userGym.resetTime = 0;
+            }
+        }
+
+        const body = getBodyStats(userId);
+
+        // Выполняем тренировку
+        if (part === 'cardio') {
+            body.cardio += Math.floor(Math.random() * 3) + 1;
+            body.weight = Math.max(WEIGHT_MIN, body.weight - 1.5); // Кардио сжигает вес сильнее!
+        } else {
+            body[part] += Math.floor(Math.random() * 3) + 1;
+            body.weight = Math.max(WEIGHT_MIN, body.weight - 0.5); // Силовые сжигают меньше веса
+        }
+
+        // Засчитываем тренировку в счетчик спама
+        userGym.count++;
+        if (userGym.count >= 5) {
+            userGym.resetTime = now + HOUR_MS; // Если это была 5-я тренировка, вешаем КД на час
+        }
 
         saveLists();
 
+        // Проверка на смерть от истощения
         if (body.weight < WEIGHT_MIN) {
-            message.reply(`💀 ${message.author} умер(ла) от истощения (вес: ${Math.round(body.weight)} кг). Возрождение с базовыми параметрами...`);
+            message.reply(`💀 ${message.author} умер(ла) от истощения в спортзале (вес: ${Math.round(body.weight)} кг). Возрождение с базовыми параметрами...`);
             body.weight = WEIGHT_DEFAULT;
-            body.chest = 10; body.arms = 10; body.legs = 10;
-            setBalance(message.author.id, Math.floor(getBalance(message.author.id) / 2));
+            body.chest = 10; body.arms = 10; body.legs = 10; body.cardio = 10;
+            setBalance(userId, Math.floor(getBalance(userId) / 2));
             saveLists();
+            // Сбрасываем тренировки при смерти
+            gymTracker.delete(userId);
             return;
         }
 
-        const partNames = { chest: '💪 Грудь', arms: '💪 Руки', legs: '🦵 Ноги' };
-        message.reply(`🏋️ Тренировка! ${partNames[part]}: ${body[part]}. Вес: ${body.weight.toFixed(1)} кг`);
+        const partNames = { chest: '💪 Грудь', arms: '💪 Руки', legs: '🦵 Ноги', cardio: '🏃 Кардио (Выносливость)' };
+        let cdWarning = userGym.count >= 5 ? `\n🚨 **Мышцы забились! Качалка закрыта на 1 час.**` : ` (Тренировок до КД: [${userGym.count}/5])`;
+        
+        message.reply(`🏋️ Тренировка окончена! ${partNames[part]}: ${body[part]}. Вес: ${body.weight.toFixed(1)} кг.${cdWarning}`);
         return;
     }
 
@@ -1943,7 +1995,8 @@ if (message.content === '!help') {
 
 
     
-        // ---- !sex (10% шанс на ребёнка, есть кулдаун) ----
+       
+       // ---- !sex (10% шанс на ребёнка, КД зависит от кардио) ----
     const RANDOM_NAMES = ['Саша', 'Женя', 'Максим', 'София', 'Артём', 'Вика', 'Дима', 'Настя', 'Игорь', 'Лера', "Арина"];
 
     if (message.content === '!sex') {
@@ -1958,19 +2011,46 @@ if (message.content === '!help') {
         const now = Date.now();
         const COOLDOWN_MS = 5 * 60 * 1000; // 5 минут
 
+        // Получаем статы выносливости автора
+        const body = getBodyStats(message.author.id);
+        
+        // Лимит попыток: если кардио > 50 — можно 3 раза подряд, иначе только 1 раз
+        const maxAttemptsBeforeCd = body.cardio >= 50 ? 3 : 1;
+
         if (!global.lastSexAttempt) global.lastSexAttempt = {};
-        if (global.lastSexAttempt[familyKey] && now - global.lastSexAttempt[familyKey] < COOLDOWN_MS) {
-            const remaining = Math.ceil((COOLDOWN_MS - (now - global.lastSexAttempt[familyKey])) / 1000);
-            message.reply(`⏳ Отдохните немного... подождите ещё ${remaining} сек`);
+        
+        // Инициализируем сессию для пары, если ее нет
+        if (!global.lastSexAttempt[familyKey]) {
+            global.lastSexAttempt[familyKey] = { count: 0, blockedUntil: 0 };
+        }
+
+        const sexSession = global.lastSexAttempt[familyKey];
+
+        // Проверяем, не заблокированы ли они сейчас
+        if (sexSession.blockedUntil && now < sexSession.blockedUntil) {
+            const remaining = Math.ceil((sexSession.blockedUntil - now) / 1000);
+            message.reply(`⏳ Вы истощены... Восстановление сил займет ещё **${remaining} сек.** 🛌`);
             return;
         }
 
-        global.lastSexAttempt[familyKey] = now;
+        // Если КД давно прошел, сбрасываем счетчик пачки попыток
+        if (sexSession.blockedUntil && now > sexSession.blockedUntil + COOLDOWN_MS) {
+            sexSession.count = 0;
+        }
 
-               const isPregnant = Math.random() < 0.10;
+        // Засчитываем попытку
+        sexSession.count++;
+
+        // Если попытки исчерпаны, вешаем КД на 5 минут
+        if (sexSession.count >= maxAttemptsBeforeCd) {
+            sexSession.blockedUntil = now + COOLDOWN_MS;
+        }
+
+        const isPregnant = Math.random() < 0.10;
 
         if (!isPregnant) {
-            message.reply(`😏 ${message.author} и <@${partnerId}>... ничего не вышло на этот раз.`);
+            let staminaInfo = maxAttemptsBeforeCd > 1 ? ` (Выносливость позволяет сделать еще попытки! Осталось: [${maxAttemptsBeforeCd - sexSession.count}])` : '';
+            message.reply(`😏 ${message.author} и <@${partnerId}>... ничего не вышло на этот раз.${sexSession.count >= maxAttemptsBeforeCd ? '\n🚨 Вы полностью выдохлись, кулдаун 5 минут!' : staminaInfo}`);
             return;
         }
 
@@ -1978,6 +2058,26 @@ if (message.content === '!help') {
             message.reply('Кто-то из вас уже ждёт ребёнка 👶');
             return;
         }
+
+        // Случайно выбираем, кто из пары беременеет
+        const pregnantId = Math.random() < 0.5 ? message.author.id : partnerId;
+        const otherPartnerId = pregnantId === message.author.id ? partnerId : message.author.id;
+
+        pregnancies[pregnantId] = {
+            startedAt: Date.now(),
+            weeks: 38 + Math.floor(Math.random() * 5),
+            partnerId: otherPartnerId
+        };
+        saveLists();
+
+        // При успешной беременности сбрасываем счетчик
+        sexSession.count = 0;
+        sexSession.blockedUntil = 0;
+
+        message.reply(`👶 Сюрприз! <@${pregnantId}> забеременел(а)! Проверить срок: \`!pregnancy\``);
+        return;
+    }
+
 
         // Случайно выбираем, кто из пары беременеет
         const pregnantId = Math.random() < 0.5 ? message.author.id : partnerId;
