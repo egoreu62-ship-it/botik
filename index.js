@@ -68,17 +68,18 @@ function loadLists() {
             marriages: parsed.marriages || {},
             stats: parsed.stats || {}, // { userId: { duelWins, duelStreak, casinoWins, casinoLosses, casesOpened } }
             achievementsUnlocked: parsed.achievementsUnlocked || {}
+            children: parsed.children || {}
         };
     } catch (e) {
-        return { blacklist: [], whitelist: [], likes: {}, balances: {}, lastDaily: {}, shopItems: {}, xp: {}, lastXpMessage: {}, marriages: {}, stats: {},  achievementsUnlocked: {}, };
+        return { blacklist: [], whitelist: [], likes: {}, balances: {}, lastDaily: {}, shopItems: {}, xp: {}, lastXpMessage: {}, marriages: {}, stats: {},  achievementsUnlocked: {}, children: {} };
     }
 }
 
 function saveLists() {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ blacklist, whitelist, likes, balances, lastDaily,  redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked }, null, 2));
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ blacklist, whitelist, likes, balances, lastDaily,  redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked, children }, null, 2));
 }
 
-let { blacklist, whitelist, likes, balances, lastDaily, redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked } = loadLists();
+let { blacklist, whitelist, likes, balances, lastDaily, redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked, children } = loadLists();
 
 function getBalance(userId) {
     if (typeof balances[userId] !== 'number') balances[userId] = 1000;
