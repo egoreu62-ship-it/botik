@@ -647,8 +647,13 @@ setInterval(async () => {
                 born: Date.now(),
                 stage: 'baby',
                 iq: 100,
-                appearance: 100
+                appearance: 100,
+                satiety: 100,      // <-- Новая шкала сытости (0-100)
+                happiness: 100,    // <-- Новая шкала счастья (0-100)
+                desire: null,      // <-- Текущая хотелка ребенка
+                desireExpires: 0   // <-- Время, до которого надо дать предмет
             });
+
 
             delete pregnancies[userId];
             saveLists();
@@ -1088,7 +1093,9 @@ if (message.content === '!help') {
         '`!kindergarten/!school/!walk <имя>` — развитие ребёнка\n' +
         '`!weight [@человек]` — параметры тела\n' +
         '`!eat <предмет>` — поесть\n' +
-        '`!gym <chest|arms|legs>` — тренировка\n\n' +      
+        '`!gym <chest|arms|legs>` — тренировка\n\n' +   
+       '` !givekid <имя> <предмет> — дать ребенку еду/игрушку (выполнить каприз).\n' +
+       '` !renamekid <старое имя> = <новое имя> — переименовать ребенка (нужно согласие супруга).\n' +
         '**🔧 Другое**\n' +
         '`!test` — тестовый сигнал'
     ];
@@ -1565,7 +1572,13 @@ if (message.content === '!help') {
 
         let text = `👨‍👩‍👧‍👦 **Семья ${target.username}**\n\nПартнёр: <@${partnerId}>\n`;
         if (familyChildren.length > 0) {
-            text += `\nДети:\n${familyChildren.map(c => `👶 ${c.name}`).join('\n')}`;
+            text += `\nДети:\n${familyChildren.map(c => {
+    const satiety = typeof c.satiety === 'number' ? c.satiety : 100;
+    const happiness = typeof c.happiness === 'number' ? c.happiness : 100;
+    const wish = c.desire ? ` (🔥 Хочет: ${MARKET_ITEMS.find(i => i.id === c.desire)?.name || c.desire})` : '';
+    return `👶 **${c.name}** — Ст.: ${c.stage}, IQ: ${c.iq}, Вн.: ${c.appearance} | 🍖 Сытость: [${satiety}/100] • ❤️ Счастье: [${happiness}/100]${wish}`;
+}).join('\n')}`;
+
         } else {
             text += `\nДетей пока нет`;
         }
@@ -1620,6 +1633,153 @@ if (message.content === '!help') {
         message.reply(`🍽️ ${child.name} покушал(а) ${item.name}. IQ: ${child.iq}, внешность: ${child.appearance}`);
         return;
     }
+        // ---- !givekid <имя> <предмет> ----
+    if (message.content.startsWith('!givekid')) {
+        const args = message.content.split(' ');
+        if (args.length < 3) {
+            message.reply('❌ Напиши так: \`!givekid <имя ребенка> <id_предмета>\`\nПример: \`!givekid Саша apple\`');
+            return;
+        }
+
+        const itemId = args[args.length - 1]; // Последний аргумент — это ID предмета
+        const childName = args.slice(1, -1).join(' '); // Все слова между командой и предметом — имя
+
+        const partnerId = marriages[message.author.id];
+        if (!partnerId) {
+            message.reply('❌ Нужно быть в браке, чтобы ухаживать за детьми!');
+            return;
+        }
+
+        const familyKey = [message.author.id, partnerId].sort().join('_');
+        const familyChildren = children[familyKey] || [];
+        const child = familyChildren.find(c => c.name.toLowerCase() === childName.toLowerCase());
+
+        if (!child) {
+            message.reply(`❌ Не нашли ребенка с именем **${childName}** в вашей семье.`);
+            return;
+        }
+
+        const item = MARKET_ITEMS.find(i => i.id === itemId);
+        if (!item) {
+            message.reply('❌ Такого предмета нет в маркете. Посмотри список через \`!buylist\`.');
+            return;
+        }
+
+        const inv = getGeneralInventory(message.author.id);
+        if (!inv[itemId] || inv[itemId] <= 0) {
+            message.reply(`❌ У тебя в инвентаре нет предмета ${item.name}. Купи его через \`!buyitem ${itemId}\``);
+            return;
+        }
+
+        // Инициализация шкал, если их не было
+        if (typeof child.satiety !== 'number') child.satiety = 80;
+        if (typeof child.happiness !== 'number') child.happiness = 80;
+
+        // Списываем предмет у родителя
+        inv[itemId]--;
+
+        let replyText = `🎁 Ты дал ребенку **${child.name}** предмет ${item.name}.\n`;
+
+        // Логика шкал в зависимости от категории
+        if (item.category === 'food' || item.category === 'basic' || item.category === 'gym') {
+            child.satiety = Math.min(100, child.satiety + 25);
+            child.happiness = Math.min(100, child.happiness + 5);
+            if (item.healthy) {
+                child.iq = Math.min(200, (child.iq || 100) + 1);
+            }
+        } else if (item.category === 'junk') {
+            child.satiety = Math.min(100, child.satiety + 15);
+            child.happiness = Math.min(100, child.happiness + 20); // Сладкое/вредное дает много радости!
+            child.appearance = Math.max(0, (child.appearance || 100) - 1);
+        } else if (item.category === 'toy') {
+            child.happiness = Math.min(100, child.happiness + 40); // Игрушка дает огромную радость
+        }
+
+        // ПРОВЕРКА: То ли это, что ребенок просил?
+        if (child.desire === itemId && Date.now() < child.desireExpires) {
+            child.desire = null; // Хотелка выполнена!
+            child.happiness = Math.min(100, child.happiness + 25); // Бонусное счастье
+            replyText += `🎉 **Успех!** Ты выполнил каприз ребенка! Он безумно рад.`;
+        }
+
+        saveLists();
+
+        replyText += `\n📊 **Статы ${child.name}:** Сытость: [${child.satiety}/100], Счастье: [${child.happiness}/100]`;
+        message.reply(replyText);
+        return;
+    }
+
+        // ---- !renamekid <старое_имя> = <новое_имя> ----
+    if (message.content.startsWith('!renamekid')) {
+        const partnerId = marriages[message.author.id];
+        if (!partnerId) {
+            message.reply('❌ Изменять профиль детей можно только состоя в браке!');
+            return;
+        }
+
+        const rawContent = message.content.slice(10).trim();
+        if (!rawContent.includes('=')) {
+            message.reply('❌ Неверный формат! Пиши так: \`!renamekid СтароеИмя = НовоеИмя\`');
+            return;
+        }
+
+        const [oldNameRaw, newNameRaw] = rawContent.split('=');
+        const oldName = oldNameRaw.trim();
+        const newName = newNameRaw.trim();
+
+        if (!newName || newName.length < 2 || newName.length > 20) {
+            message.reply('❌ Новое имя должно быть длиной от 2 до 20 символов.');
+            return;
+        }
+
+        const familyKey = [message.author.id, partnerId].sort().join('_');
+        const familyChildren = children[familyKey] || [];
+        const child = familyChildren.find(c => c.name.toLowerCase() === oldName.toLowerCase());
+
+        if (!child) {
+            message.reply(`❌ Ребенок со старым именем **${oldName}** не найден в твоей семье.`);
+            return;
+        }
+
+        // Создаем кнопки для согласия партнера
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('rename_accept').setLabel('🤝 Согласиться').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('rename_decline').setLabel('❌ Отказать').setStyle(ButtonStyle.Danger)
+        );
+
+        const renameMsg = await message.reply({
+            content: `🔔 <@${message.author.id}> хочет переименовать вашего ребенка **${child.name}** в **${newName}**.\n<@${partnerId}>, требуется твое согласие! Нажми на кнопку ниже.`,
+            components: [row]
+        });
+
+        // Коллектор кнопок, ждем клика именно от ПАРТНЕРА
+        try {
+            const confirmation = await renameMsg.awaitMessageComponent({
+                componentType: ComponentType.Button,
+                time: 60000, // 1 минута на ответ
+                filter: (i) => i.user.id === partnerId
+            });
+
+            if (confirmation.customId === 'rename_decline') {
+                await confirmation.update({ content: `❌ <@${partnerId}> отказался менять имя ребенку. Имя осталось прежним: **${child.name}**.`, components: [] });
+                return;
+            }
+
+            // Если партнер согласился — меняем имя в базе
+            child.name = newName;
+            saveLists();
+
+            await confirmation.update({
+                content: `🎉 Оба родителя согласились! Ребенок **${oldName}** успешно переименован в **${newName}**! 👶✨`,
+                components: []
+            });
+        } catch (e) {
+            await renameMsg.edit({ content: '⏱️ Время ожидания согласия вышло. Смена имени отменена.', components: [] }).catch(() => {});
+        }
+        return;
+    }
+
+
 
     // ---- !kindergarten / !school / !walk <имя> ----
     if (message.content.startsWith('!kindergarten') || message.content.startsWith('!school') || message.content.startsWith('!walk')) {
@@ -3459,3 +3619,52 @@ app.delete('/api/whitelist/:id', (req, res) => {
 app.listen(PANEL_PORT, '127.0.0.1', () => {
     console.log(`🖥️ Панель управления запущена на порту ${PANEL_PORT} (только localhost)`);
 });
+
+// ==== Жизнедеятельность детей (Тамагочи-система) ====
+setInterval(async () => {
+    const now = Date.now();
+    
+    for (const familyKey in children) {
+        const familyChildren = children[familyKey];
+        if (!familyChildren || familyChildren.length === 0) continue;
+
+        familyChildren.forEach(child => {
+            // Инициализация шкал для старых детей, если их не было
+            if (typeof child.satiety !== 'number') child.satiety = 80;
+            if (typeof child.happiness !== 'number') child.happiness = 80;
+
+            // 1. Естественное падение шкал каждые 30 минут
+            child.satiety = Math.max(0, child.satiety - 5);
+            child.happiness = Math.max(0, child.happiness - 4);
+
+            // 2. Проверка просроченной хотелки
+            if (child.desire && now > child.desireExpires) {
+                child.desire = null; // Хотелка сгорела
+                child.happiness = Math.max(0, child.happiness - 20); // Обиделся, счастье сильно упало
+                console.log(`😾 Ребенок ${child.name} не получил желаемое вовремя. Счастье упало.`);
+            }
+
+            // 3. Рандомное появление новой хотелки (шанс 15% каждые 30 минут)
+            if (!child.desire && Math.random() < 0.15) {
+                // Выбираем случайный предмет из MARKET_ITEMS
+                const randomItem = MARKET_ITEMS[Math.floor(Math.random() * MARKET_ITEMS.length)];
+                
+                child.desire = randomItem.id;
+                child.desireExpires = now + (2 * 60 * 60 * 1000); // Дается 2 часа на выполнение!
+
+                // Пытаемся отправить сообщение родителям на сервер
+                try {
+                    client.guilds.fetch(GUILD_ID).then(guild => {
+                        guild.channels.fetch(currentVoiceChannelId).then(channel => {
+                            // Ищем ID родителей из ключа пары (формат: ID1_ID2)
+                            const [parent1, parent2] = familyKey.split('_');
+                            channel.send(`👶 **Тамагочи:** Ребенок **${child.name}** у родителей <@${parent1}> и <@${parent2}> капризничает и просит: ${randomItem.name}! У вас есть 2 часа, чтобы дать ему это командой \`!givekid ${child.name} ${randomItem.id}\`!`);
+                        }).catch(() => {});
+                    }).catch(() => {});
+                } catch (e) {}
+            }
+        });
+    }
+    saveLists();
+}, 30 * 60 * 1000); // Проверка каждые 30 минут
+
