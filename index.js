@@ -68,18 +68,19 @@ function loadLists() {
             marriages: parsed.marriages || {},
             stats: parsed.stats || {}, // { userId: { duelWins, duelStreak, casinoWins, casinoLosses, casesOpened } }
             achievementsUnlocked: parsed.achievementsUnlocked || {},
-            children: parsed.children || {}
+            children: parsed.children || {},
+            inventory: parsed.inventory || {}
         };
     } catch (e) {
-        return { blacklist: [], whitelist: [], likes: {}, balances: {}, lastDaily: {}, shopItems: {}, xp: {}, lastXpMessage: {}, marriages: {}, stats: {},  achievementsUnlocked: {}, children: {} };
+        return { blacklist: [], whitelist: [], likes: {}, balances: {}, lastDaily: {}, shopItems: {}, xp: {}, lastXpMessage: {}, marriages: {}, stats: {},  achievementsUnlocked: {}, children: {}, inventory: {} };
     }
 }
 
 function saveLists() {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ blacklist, whitelist, likes, balances, lastDaily,  redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked, children }, null, 2));
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ blacklist, whitelist, likes, balances, lastDaily,  redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked, children, inventory }, null, 2));
 }
 
-let { blacklist, whitelist, likes, balances, lastDaily, redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked, children } = loadLists();
+let { blacklist, whitelist, likes, balances, lastDaily, redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked, children, inventory } = loadLists();
 
 function getBalance(userId) {
     if (typeof balances[userId] !== 'number') balances[userId] = 1000;
@@ -118,6 +119,52 @@ function getStats(userId) {
 function getShopDiscount(userId) {
     const level = getLevel(userId);
     return Math.min(0.3, level * 0.01); // 1% скидка за уровень, максимум 30%
+}
+// ==== Система скинов (как в CS:GO) ====
+const RARITIES = [
+    { id: 'common', name: '⚪ Обычный', minPrice: 50, maxPrice: 300 },
+    { id: 'uncommon', name: '🔵 Необычный', minPrice: 300, maxPrice: 1000 },
+    { id: 'rare', name: '🟣 Редкий', minPrice: 1000, maxPrice: 5000 },
+    { id: 'epic', name: '🟠 Эпический', minPrice: 5000, maxPrice: 20000 },
+    { id: 'legendary', name: '🔴 Легендарный', minPrice: 20000, maxPrice: 100000 }
+];
+
+const WEAPON_NAMES = ['AK-47', 'M4A4', 'AWP', 'Desert Eagle', 'USP-S', 'Glock-18', 'Karambit', 'Butterfly Knife', 'Bayonet', 'M9 Bayonet'];
+const SKIN_NAMES = ['Redline', 'Asiimov', 'Dragon Lore', 'Fade', 'Case Hardened', 'Doppler', 'Vulcan', 'Hyper Beast', 'Neon Rider', 'Marble Fade'];
+
+function generateSkin(rarity) {
+    const weapon = WEAPON_NAMES[Math.floor(Math.random() * WEAPON_NAMES.length)];
+    const skin = SKIN_NAMES[Math.floor(Math.random() * SKIN_NAMES.length)];
+    const price = Math.floor(rarity.minPrice + Math.random() * (rarity.maxPrice - rarity.minPrice));
+    return {
+        name: `${weapon} | ${skin}`,
+        price,
+        rarityId: rarity.id,
+        rarityName: rarity.name,
+        obtainedAt: Date.now()
+    };
+}
+
+function pickRarity(weights) {
+    const total = Object.values(weights).reduce((a, b) => a + b, 0);
+    let roll = Math.random() * total;
+    for (const key in weights) {
+        if (roll < weights[key]) return RARITIES.find(r => r.id === key);
+        roll -= weights[key];
+    }
+    return RARITIES[0];
+}
+
+const CASES = [
+    { id: 'starter', name: 'Стартовый кейс', cost: 500, weights: { common: 70, uncommon: 25, rare: 4, epic: 1, legendary: 0 } },
+    { id: 'standard', name: 'Стандартный кейс', cost: 2000, weights: { common: 50, uncommon: 30, rare: 15, epic: 4, legendary: 1 } },
+    { id: 'premium', name: 'Премиум кейс', cost: 10000, weights: { common: 20, uncommon: 30, rare: 30, epic: 15, legendary: 5 } },
+    { id: 'elite', name: 'Элитный кейс', cost: 50000, weights: { common: 5, uncommon: 15, rare: 30, epic: 35, legendary: 15 } }
+];
+
+function getInventory(userId) {
+    if (!inventory[userId]) inventory[userId] = [];
+    return inventory[userId];
 }
 
 const ACHIEVEMENTS = [
@@ -905,6 +952,10 @@ client.on('messageCreate', async (message) => {
             '`!family [@человек]` — посмотреть семью\n' +
             '`!sex` — попытка завести ребёнка (нужен брак, шанс 10%, кулдаун 5 мин)\n' +
             '`!case <цена>` — открыть кейс с призом\n' +
+            '`!case [id]` — список кейсов / открыть кейс со скином\n' +
+            '`!inventory [@человек]` — инвентарь скинов\n' +
+            '`!upgrade <номер> <множитель>` — рискнуть скином на апгрейд\n' +
+            '`!sell <номер>` — продать скин\n' +
             '`!achievements` — список достижений\n' +       
             '`!shop` — список ролей в магазине\n' +
             '`!buy <номер>` — купить роль из магазина\n' +
@@ -1162,6 +1213,7 @@ client.on('messageCreate', async (message) => {
                 `**Победы в казино:** ${userStats.casinoWins}\n` +
                 `**Проигрыши в казино:** ${userStats.casinoLosses}\n` +
                 `**Открыто кейсов:** ${userStats.casesOpened}\n` +
+                `**Инвентарь:** ${getInventory(target.id).reduce((s, i) => s + i.price, 0)} 🪙 (${getInventory(target.id).length} скинов)\n` +
                 `**Достижений:** ${unlockedCount} / ${ACHIEVEMENTS.length}`
             );
 
@@ -1344,61 +1396,169 @@ client.on('messageCreate', async (message) => {
         return;
     }
 
-    // ---- !case <ставка> (лутбокс) ----
-    const CASE_REWARDS = [
-        { label: 'Пусто', weight: 30, amount: 0 },
-        { label: 'Немного фишек', weight: 30, amount: 1 }, // множитель от цены кейса
-        { label: 'Средний приз', weight: 25, amount: 2 },
-        { label: 'Хороший приз', weight: 10, amount: 5 },
-        { label: 'ДЖЕКПОТ', weight: 5, amount: 15 }
-    ];
+    
+   
 
+     // ---- !case [id] (список кейсов или открыть конкретный) ----
     if (message.content.startsWith('!case')) {
         const args = message.content.split(' ');
-        const cost = parseInt(args[1]);
+        const caseId = args[1];
 
-        if (!cost || cost <= 0) {
-            message.reply('Напиши так: `!case 500` (цена кейса — чем дороже, тем выше потенциальный приз)');
+        if (!caseId) {
+            let text = '**📦 Доступные кейсы**\n\n';
+            CASES.forEach(c => {
+                text += `\`${c.id}\` — **${c.name}** — ${c.cost} 🪙\n`;
+            });
+            text += '\nОткрыть: `!case starter`';
+            message.reply(text);
+            return;
+        }
+
+        const caseConfig = CASES.find(c => c.id === caseId);
+        if (!caseConfig) {
+            message.reply('Такого кейса нет. Напиши `!case`, чтобы увидеть список.');
             return;
         }
 
         const balance = getBalance(message.author.id);
-        if (cost > balance) {
-            message.reply(`Недостаточно фишек! У тебя: ${balance} 🪙`);
+        if (caseConfig.cost > balance) {
+            message.reply(`Недостаточно фишек! Нужно: ${caseConfig.cost} 🪙, у тебя: ${balance} 🪙`);
             return;
         }
 
-        const totalWeight = CASE_REWARDS.reduce((sum, r) => sum + r.weight, 0);
-        let roll = Math.random() * totalWeight;
-        let picked = CASE_REWARDS[0];
-        for (const r of CASE_REWARDS) {
-            if (roll < r.weight) { picked = r; break; }
-            roll -= r.weight;
-        }
+        setBalance(message.author.id, balance - caseConfig.cost);
 
-        const reward = Math.floor(cost * picked.amount);
-        setBalance(message.author.id, balance - cost + reward);
+        const rarity = pickRarity(caseConfig.weights);
+        const skin = generateSkin(rarity);
+
+        getInventory(message.author.id).push(skin);
+        saveLists();
 
         const userStats = getStats(message.author.id);
         userStats.casesOpened++;
         saveLists();
         checkAchievements(message.author.id, message);
 
-        const isProfit = reward > cost;
+        const rarityColors = { common: 0xb0c3d9, uncommon: 0x5e98d9, rare: 0x4b69ff, epic: 0x8847ff, legendary: 0xeb4b4b };
+
         const embed = new EmbedBuilder()
-            .setColor(isProfit ? 0x00ff00 : 0x808080)
-            .setTitle('📦 Открытие кейса')
+            .setColor(rarityColors[rarity.id] || 0x808080)
+            .setTitle(`📦 ${caseConfig.name}`)
             .setDescription(
-                `Цена кейса: ${cost} 🪙\n` +
-                `Выпало: **${picked.label}**\n` +
-                `Получено: ${reward} 🪙\n\n` +
-                `Баланс: ${getBalance(message.author.id)} 🪙`
+                `Выпало: **${skin.name}**\n` +
+                `Редкость: ${skin.rarityName}\n` +
+                `Цена: ${skin.price} 🪙\n\n` +
+                `Скин добавлен в инвентарь. Посмотреть: \`!inventory\``
             );
 
         message.reply({ embeds: [embed] });
         return;
     }
 
+    // ---- !inventory [@человек] ----
+    if (message.content.startsWith('!inventory')) {
+        const target = message.mentions.users.first() || message.author;
+        const inv = getInventory(target.id);
+
+        if (inv.length === 0) {
+            message.reply(`${target === message.author ? 'У тебя' : `У ${target.username}`} пока нет скинов. Открой кейс: \`!case\``);
+            return;
+        }
+
+        const sorted = [...inv].sort((a, b) => b.price - a.price);
+        const totalValue = inv.reduce((sum, s) => sum + s.price, 0);
+
+        let text = `**🎒 Инвентарь ${target.username}** (всего: ${totalValue} 🪙)\n\n`;
+        sorted.slice(0, 20).forEach((skin) => {
+            const realIndex = inv.indexOf(skin);
+            text += `${realIndex + 1}. ${skin.rarityName} **${skin.name}** — ${skin.price} 🪙\n`;
+        });
+        if (inv.length > 20) text += `\n...и ещё ${inv.length - 20}`;
+
+        message.reply(text);
+        return;
+    }
+
+    // ---- !upgrade <номер скина> <множитель> ----
+    const UPGRADE_MULTIPLIERS = [1.5, 2, 3, 5, 10];
+    const UPGRADE_HOUSE_EDGE = 0.90; // 90% от честного шанса — 10% в пользу казино
+
+    if (message.content.startsWith('!upgrade')) {
+        const args = message.content.split(' ');
+        const index = parseInt(args[1]) - 1;
+        const multiplier = parseFloat(args[2]);
+
+        const inv = getInventory(message.author.id);
+
+        if (isNaN(index) || !inv[index]) {
+            message.reply('Напиши так: `!upgrade 1 2` (номер скина из `!inventory`, множитель: 1.5, 2, 3, 5 или 10)');
+            return;
+        }
+
+        if (!UPGRADE_MULTIPLIERS.includes(multiplier)) {
+            message.reply(`Множитель должен быть одним из: ${UPGRADE_MULTIPLIERS.join(', ')}`);
+            return;
+        }
+
+        const skin = inv[index];
+        const chance = (100 / multiplier) * UPGRADE_HOUSE_EDGE / 100;
+        const success = Math.random() < chance;
+
+        if (success) {
+            const newPrice = Math.floor(skin.price * multiplier);
+            let newRarity = RARITIES[0];
+            for (const r of RARITIES) {
+                if (newPrice >= r.minPrice) newRarity = r;
+            }
+
+            const upgradedSkin = {
+                name: skin.name,
+                price: newPrice,
+                rarityId: newRarity.id,
+                rarityName: newRarity.name,
+                obtainedAt: Date.now()
+            };
+
+            inv.splice(index, 1, upgradedSkin);
+            saveLists();
+
+            message.reply(
+                `✅ **Успех!** (шанс был ${Math.round(chance * 100)}%)\n` +
+                `**${skin.name}** (${skin.price} 🪙) → **${upgradedSkin.name}** (${upgradedSkin.price} 🪙)`
+            );
+        } else {
+            inv.splice(index, 1);
+            saveLists();
+
+            message.reply(`❌ **Неудача!** (шанс был ${Math.round(chance * 100)}%)\n**${skin.name}** потерян навсегда 💀`);
+        }
+        return;
+    }
+
+    // ---- !sell <номер скина> ----
+    const SELL_PERCENTAGE = 0.8; // продажа за 80% от цены
+
+    if (message.content.startsWith('!sell')) {
+        const args = message.content.split(' ');
+        const index = parseInt(args[1]) - 1;
+
+        const inv = getInventory(message.author.id);
+
+        if (isNaN(index) || !inv[index]) {
+            message.reply('Напиши так: `!sell 1` (номер скина из `!inventory`)');
+            return;
+        }
+
+        const skin = inv[index];
+        const sellPrice = Math.floor(skin.price * SELL_PERCENTAGE);
+
+        inv.splice(index, 1);
+        setBalance(message.author.id, getBalance(message.author.id) + sellPrice);
+        saveLists();
+
+        message.reply(`💰 Продано: **${skin.name}** за ${sellPrice} 🪙 (80% от цены). Баланс: ${getBalance(message.author.id)} 🪙`);
+        return;
+    }
     // ---- !achievements ----
     if (message.content === '!achievements') {
         const unlocked = achievementsUnlocked[message.author.id] || [];
@@ -1787,7 +1947,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         }
 
         let dynamicMaxBet = Math.floor(500 + (balance * 0.10));
-        if (dynamicMaxBet > 10000) dynamicMaxBet = 10000;
+       
 
         if (bet > dynamicMaxBet) {
             message.reply(`❌ Твой лимит ставки сейчас — не больше ${dynamicMaxBet} 🪙! (Лимит растёт вместе с балансом)`);
