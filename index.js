@@ -69,18 +69,21 @@ function loadLists() {
             stats: parsed.stats || {}, // { userId: { duelWins, duelStreak, casinoWins, casinoLosses, casesOpened } }
             achievementsUnlocked: parsed.achievementsUnlocked || {},
             children: parsed.children || {},
-            inventory: parsed.inventory || {}
+            inventory: parsed.inventory || {},
+            generalInventory: parsed.generalInventory || {}, // { userId: { itemId: количество } }
+            pregnancies: parsed.pregnancies || {}, // { userId: { startedAt, weeks (случайный срок 38-42), partnerId } }
+            bodyStats: parsed.bodyStats || {} // { userId: { weight, chest, arms, legs } }
         };
     } catch (e) {
-        return { blacklist: [], whitelist: [], likes: {}, balances: {}, lastDaily: {}, shopItems: {}, xp: {}, lastXpMessage: {}, marriages: {}, stats: {},  achievementsUnlocked: {}, children: {}, inventory: {} };
+        return { blacklist: [], whitelist: [], likes: {}, balances: {}, lastDaily: {}, shopItems: {}, xp: {}, lastXpMessage: {}, marriages: {}, stats: {},  achievementsUnlocked: {}, children: {}, inventory: {}, generalInventory: {}, pregnancies: {}, bodyStats: {} };
     }
 }
 
 function saveLists() {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ blacklist, whitelist, likes, balances, lastDaily,  redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked, children, inventory }, null, 2));
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ blacklist, whitelist, likes, balances, lastDaily,  redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked, children, inventory, generalInventory,  pregnancies, bodyStats  }, null, 2));
 }
 
-let { blacklist, whitelist, likes, balances, lastDaily, redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked, children, inventory } = loadLists();
+let { blacklist, whitelist, likes, balances, lastDaily, redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked, children, inventory, generalInventory, pregnancies, bodyStats   } = loadLists();
 
 function getBalance(userId) {
     if (typeof balances[userId] !== 'number') balances[userId] = 1000;
@@ -166,6 +169,68 @@ function getInventory(userId) {
     if (!inventory[userId]) inventory[userId] = [];
     return inventory[userId];
 }
+
+// ==== Маркет еды/вещей ====
+const MARKET_ITEMS = [
+    { id: 'water', name: '💧 Вода', price: 20, category: 'basic', healthy: true },
+    { id: 'bread', name: '🍞 Хлеб', price: 30, category: 'food', healthy: true },
+    { id: 'apple', name: '🍎 Яблоко', price: 25, category: 'food', healthy: true },
+    { id: 'milk', name: '🥛 Молоко', price: 30, category: 'food', healthy: true },
+    { id: 'vegetables', name: '🥦 Овощи', price: 40, category: 'food', healthy: true },
+    { id: 'protein', name: '🥩 Белковая еда', price: 60, category: 'gym', healthy: true },
+    { id: 'cola', name: '🥤 Кола', price: 25, category: 'junk', healthy: false },
+    { id: 'chips', name: '🍟 Чипсы', price: 35, category: 'junk', healthy: false },
+    { id: 'candy', name: '🍬 Конфеты', price: 20, category: 'junk', healthy: false },
+    { id: 'toy', name: '🧸 Игрушка', price: 200, category: 'toy', healthy: null }
+];
+
+function getGeneralInventory(userId) {
+    if (!generalInventory[userId]) generalInventory[userId] = {};
+    return generalInventory[userId];
+}
+
+// ==== Вес и тело ====
+const WEIGHT_MIN = 30;
+const WEIGHT_MAX = 200;
+const WEIGHT_DEFAULT = 70;
+
+function getBodyStats(userId) {
+    if (!bodyStats[userId]) {
+        bodyStats[userId] = { weight: WEIGHT_DEFAULT, chest: 10, arms: 10, legs: 10 };
+    }
+    return bodyStats[userId];
+}
+
+// ==== Беременность ====
+// Таблица "фрукт по неделям" (упрощённая, как в тик-токе)
+const PREGNANCY_FRUITS = [
+    { week: 4, fruit: '🌰 маковое зёрнышко' },
+    { week: 8, fruit: '🫐 малина' },
+    { week: 12, fruit: '🍋 лайм' },
+    { week: 16, fruit: '🥑 авокадо' },
+    { week: 20, fruit: '🍌 банан' },
+    { week: 24, fruit: '🌽 кукуруза' },
+    { week: 28, fruit: '🍆 баклажан' },
+    { week: 32, fruit: '🥥 кокос' },
+    { week: 36, fruit: '🍈 дыня' },
+    { week: 40, fruit: '🍉 арбуз' }
+];
+
+function getFruitForWeek(week) {
+    let result = PREGNANCY_FRUITS[0];
+    for (const f of PREGNANCY_FRUITS) {
+        if (week >= f.week) result = f;
+    }
+    return result.fruit;
+}
+
+// 1 неделя беременности = 1 реальный день
+function getPregnancyWeek(pregnancy) {
+    const daysPassed = (Date.now() - pregnancy.startedAt) / (24 * 60 * 60 * 1000);
+    return Math.min(42, Math.floor(daysPassed) + 1);
+}
+
+
 
 const ACHIEVEMENTS = [
     { id: 'duel_streak_10', name: '🔥 Непобедимый', desc: '10 побед в дуэлях подряд', reward: 5000, check: (s) => s.duelStreak >= 10 },
@@ -553,6 +618,46 @@ setInterval(async () => {
         // тихо игнорируем — не критично
     }
 }, 60000);
+
+// Проверка родов — раз в час смотрим, не пора ли рожать
+setInterval(async () => {
+    for (const userId in pregnancies) {
+        const pregnancy = pregnancies[userId];
+        const week = getPregnancyWeek(pregnancy);
+
+        let shouldGiveBirth = false;
+        if (week >= 42) {
+            shouldGiveBirth = true; // на 42 неделе роды точно наступают
+        } else if (week >= 38) {
+            shouldGiveBirth = Math.random() < 0.15; // с 38 недели — 15% шанс каждую проверку
+        }
+
+        if (shouldGiveBirth) {
+            const familyKey = [userId, pregnancy.partnerId].sort().join('_');
+            if (!children[familyKey]) children[familyKey] = [];
+
+            const name = RANDOM_NAMES[Math.floor(Math.random() * RANDOM_NAMES.length)];
+            children[familyKey].push({
+                name,
+                born: Date.now(),
+                stage: 'baby',
+                iq: 100,
+                appearance: 100
+            });
+
+            delete pregnancies[userId];
+            saveLists();
+
+            try {
+                const guild = await client.guilds.fetch(GUILD_ID);
+                const channel = await guild.channels.fetch(currentVoiceChannelId);
+                // Отправим в тот же текстовый канал, где сидит бот в войсе — если нет текстового, просто пропустим
+            } catch (e) {}
+
+            console.log(`👶 Роды: <@${userId}> и <@${pregnancy.partnerId}> — родился(ась) ${name}`);
+        }
+    }
+}, 60 * 60 * 1000); // раз в час
 
 client.once('ready', async () => {
     console.log(`🤖 Бот запущен: ${client.user.tag}`);
@@ -951,7 +1056,6 @@ client.on('messageCreate', async (message) => {
             '`!divorce` — развод\n' +
             '`!family [@человек]` — посмотреть семью\n' +
             '`!sex` — попытка завести ребёнка (нужен брак, шанс 10%, кулдаун 5 мин)\n' +
-            '`!case <цена>` — открыть кейс с призом\n' +
             '`!case [id]` — список кейсов / открыть кейс со скином\n' +
             '`!inventory [@человек]` — инвентарь скинов\n' +
             '`!upgrade <номер> <множитель>` — рискнуть скином на апгрейд\n' +
@@ -966,6 +1070,15 @@ client.on('messageCreate', async (message) => {
             '`!daily` — ежедневный бонус 2000 🪙\n' +
             '`!pay @человек <сумма>` — перевести фишки\n' +
             '`!promo <код>` — активировать промокод\n\n' +
+            '\n**👨‍👩‍👧 Семья и жизнь**\n' +
+            '`!buylist` / `!buyitem <предмет> <кол-во>` — магазин еды\n' +
+            '`!pregnancy [@человек]` — статус беременности\n' +
+            '`!abort` — прервать беременность\n' +
+            '`!feed <имя> <предмет>` — покормить ребёнка\n' +
+            '`!kindergarten/!school/!walk <имя>` — развитие ребёнка\n' +
+            '`!weight [@человек]` — параметры тела\n' +
+            '`!eat <предмет>` — поесть (набор веса)\n' +
+            '`!gym <chest|arms|legs>` — тренировка\n\n' +      
             '**🔧 Другое**\n' +
             '`!test` — тестовый сигнал (диагностика звука)';
              
@@ -1356,6 +1469,216 @@ client.on('messageCreate', async (message) => {
         message.reply(text);
         return;
     }
+    // ---- !feed <имя ребёнка> <предмет> ----
+    if (message.content.startsWith('!feed')) {
+        const args = message.content.split(' ');
+        const itemId = args[args.length - 1];
+        const childName = args.slice(1, -1).join(' ');
+
+        const partnerId = marriages[message.author.id];
+        if (!partnerId) {
+            message.reply('Нужно быть в браке!');
+            return;
+        }
+
+        const familyKey = [message.author.id, partnerId].sort().join('_');
+        const familyChildren = children[familyKey] || [];
+        const child = familyChildren.find(c => c.name.toLowerCase() === childName.toLowerCase());
+
+        if (!child) {
+            message.reply('Не нашёл ребёнка с таким именем. Напиши так: `!feed Имя предмет`');
+            return;
+        }
+
+        const item = MARKET_ITEMS.find(i => i.id === itemId);
+        if (!item || (item.category !== 'food' && item.category !== 'junk' && item.category !== 'basic')) {
+            message.reply('Это не еда. Напиши `!buylist`, чтобы увидеть съедобные предметы.');
+            return;
+        }
+
+        const inv = getGeneralInventory(message.author.id);
+        if (!inv[itemId] || inv[itemId] <= 0) {
+            message.reply(`У тебя нет ${item.name}. Купи через \`!buyitem ${itemId}\``);
+            return;
+        }
+
+        inv[itemId]--;
+
+        if (item.healthy) {
+            child.iq = Math.min(200, (child.iq || 100) + 2);
+            child.appearance = Math.min(200, (child.appearance || 100) + 1);
+        } else {
+            child.appearance = Math.max(0, (child.appearance || 100) - 2);
+        }
+
+        saveLists();
+
+        message.reply(`🍽️ ${child.name} покушал(а) ${item.name}. IQ: ${child.iq}, внешность: ${child.appearance}`);
+        return;
+    }
+
+    // ---- !kindergarten / !school / !walk <имя> ----
+    if (message.content.startsWith('!kindergarten') || message.content.startsWith('!school') || message.content.startsWith('!walk')) {
+        const isKindergarten = message.content.startsWith('!kindergarten');
+        const isSchool = message.content.startsWith('!school');
+        const childName = message.content.split(' ').slice(1).join(' ');
+
+        const partnerId = marriages[message.author.id];
+        if (!partnerId) {
+            message.reply('Нужно быть в браке!');
+            return;
+        }
+
+        const familyKey = [message.author.id, partnerId].sort().join('_');
+        const familyChildren = children[familyKey] || [];
+        const child = familyChildren.find(c => c.name.toLowerCase() === childName.toLowerCase());
+
+        if (!child) {
+            message.reply('Не нашёл ребёнка с таким именем.');
+            return;
+        }
+
+        if (isKindergarten) {
+            child.stage = 'kindergarten';
+            child.iq = Math.min(200, (child.iq || 100) + 3);
+            message.reply(`🏫 ${child.name} пошёл(шла) в садик! IQ: ${child.iq}`);
+        } else if (isSchool) {
+            child.stage = 'school';
+            child.iq = Math.min(200, (child.iq || 100) + 5);
+            message.reply(`📚 ${child.name} пошёл(шла) в школу! IQ: ${child.iq}`);
+        } else {
+            child.appearance = Math.min(200, (child.appearance || 100) + 2);
+            message.reply(`🚶 Прогулка с ${child.name} прошла отлично! Настроение и внешность улучшились.`);
+        }
+
+        saveLists();
+        return;
+    }
+    // ---- !weight [@человек] ----
+    if (message.content.startsWith('!weight')) {
+        const target = message.mentions.users.first() || message.author;
+        const body = getBodyStats(target.id);
+
+        message.reply(
+            `⚖️ **Параметры ${target.username}**\n\n` +
+            `Вес: ${body.weight} кг\n` +
+            `💪 Грудь: ${body.chest}\n` +
+            `💪 Руки: ${body.arms}\n` +
+            `🦵 Ноги: ${body.legs}`
+        );
+        return;
+    }
+
+    // ---- !eat <предмет> (набор веса) ----
+    if (message.content.startsWith('!eat')) {
+        const args = message.content.split(' ');
+        const itemId = args[1];
+
+        const item = MARKET_ITEMS.find(i => i.id === itemId);
+        if (!item || (item.category !== 'food' && item.category !== 'junk' && item.category !== 'basic')) {
+            message.reply('Это не еда. Напиши `!buylist`, чтобы увидеть съедобные предметы.');
+            return;
+        }
+
+        const inv = getGeneralInventory(message.author.id);
+        if (!inv[itemId] || inv[itemId] <= 0) {
+            message.reply(`У тебя нет ${item.name}. Купи через \`!buyitem ${itemId}\``);
+            return;
+        }
+
+        inv[itemId]--;
+
+        const body = getBodyStats(message.author.id);
+        const weightGain = item.category === 'junk' ? 3 : item.category === 'basic' ? 0.5 : 1.5;
+        body.weight += weightGain;
+
+        saveLists();
+
+        // Проверка на смерть от веса
+        if (body.weight > WEIGHT_MAX) {
+            message.reply(`💀 ${message.author} умер(ла) от ожирения (вес: ${Math.round(body.weight)} кг). Возрождение с базовыми параметрами...`);
+            body.weight = WEIGHT_DEFAULT;
+            body.chest = 10; body.arms = 10; body.legs = 10;
+            setBalance(message.author.id, Math.floor(getBalance(message.author.id) / 2));
+            saveLists();
+            return;
+        }
+
+        message.reply(`🍽️ Съедено: ${item.name}. Вес: ${body.weight.toFixed(1)} кг`);
+        return;
+    }
+
+    // ---- !gym <chest|arms|legs> ----
+    if (message.content.startsWith('!gym')) {
+        const args = message.content.split(' ');
+        const part = args[1];
+
+        if (!['chest', 'arms', 'legs'].includes(part)) {
+            message.reply('Напиши так: `!gym chest`, `!gym arms` или `!gym legs`');
+            return;
+        }
+
+        const body = getBodyStats(message.author.id);
+        body[part] += Math.floor(Math.random() * 3) + 1;
+        body.weight = Math.max(WEIGHT_MIN, body.weight - 1);
+
+        saveLists();
+
+        if (body.weight < WEIGHT_MIN) {
+            message.reply(`💀 ${message.author} умер(ла) от истощения (вес: ${Math.round(body.weight)} кг). Возрождение с базовыми параметрами...`);
+            body.weight = WEIGHT_DEFAULT;
+            body.chest = 10; body.arms = 10; body.legs = 10;
+            setBalance(message.author.id, Math.floor(getBalance(message.author.id) / 2));
+            saveLists();
+            return;
+        }
+
+        const partNames = { chest: '💪 Грудь', arms: '💪 Руки', legs: '🦵 Ноги' };
+        message.reply(`🏋️ Тренировка! ${partNames[part]}: ${body[part]}. Вес: ${body.weight.toFixed(1)} кг`);
+        return;
+    }
+
+    
+    // ---- !pregnancy [@человек] ----
+    if (message.content.startsWith('!pregnancy')) {
+        const target = message.mentions.users.first() || message.author;
+        const pregnancy = pregnancies[target.id];
+
+        if (!pregnancy) {
+            message.reply(`${target === message.author ? 'Ты не беременна(ен)' : `${target.username} не беременна(ен)`} 🤷`);
+            return;
+        }
+
+        const week = getPregnancyWeek(pregnancy);
+        const fruit = getFruitForWeek(week);
+
+        let statusText = `**Срок:** ${week} недель\n**Размер плода:** как ${fruit}\n`;
+        if (week >= pregnancy.weeks) {
+            statusText += '\n🚨 Роды могут начаться в любой момент!';
+        } else if (week >= 38) {
+            statusText += '\n⏳ Уже можно рожать, ждём начала схваток...';
+        }
+
+        message.reply(`🤰 **Беременность ${target.username}**\n\n${statusText}`);
+        return;
+    }
+
+    // ---- !abort ----
+    if (message.content === '!abort') {
+        if (!pregnancies[message.author.id]) {
+            message.reply('Ты не беременна(ен) 🤷');
+            return;
+        }
+
+        delete pregnancies[message.author.id];
+        saveLists();
+
+        message.reply('💔 Беременность прервана.');
+        return;
+    }
+
+
+    
         // ---- !sex (10% шанс на ребёнка, есть кулдаун) ----
     const RANDOM_NAMES = ['Саша', 'Женя', 'Максим', 'София', 'Артём', 'Вика', 'Дима', 'Настя', 'Игорь', 'Лера', "Арина"];
 
@@ -1380,19 +1703,30 @@ client.on('messageCreate', async (message) => {
 
         global.lastSexAttempt[familyKey] = now;
 
-        const isPregnant = Math.random() < 0.10; // 10% шанс
+               const isPregnant = Math.random() < 0.10;
 
         if (!isPregnant) {
             message.reply(`😏 ${message.author} и <@${partnerId}>... ничего не вышло на этот раз.`);
             return;
         }
 
-        if (!children[familyKey]) children[familyKey] = [];
-        const name = RANDOM_NAMES[Math.floor(Math.random() * RANDOM_NAMES.length)];
-        children[familyKey].push({ name, born: now });
+        if (pregnancies[message.author.id] || pregnancies[partnerId]) {
+            message.reply('Кто-то из вас уже ждёт ребёнка 👶');
+            return;
+        }
+
+        // Случайно выбираем, кто из пары беременеет
+        const pregnantId = Math.random() < 0.5 ? message.author.id : partnerId;
+        const otherPartnerId = pregnantId === message.author.id ? partnerId : message.author.id;
+
+        pregnancies[pregnantId] = {
+            startedAt: Date.now(),
+            weeks: 38 + Math.floor(Math.random() * 5), // роды где-то на 38-42 неделе
+            partnerId: otherPartnerId
+        };
         saveLists();
 
-        message.reply(`👶 Сюрприз! У ${message.author} и <@${partnerId}> родил(ся/ась) **${name}**! 🎉`);
+        message.reply(`👶 Сюрприз! <@${pregnantId}> забеременел(а)! Проверить срок: \`!pregnancy\``);
         return;
     }
 
@@ -2139,6 +2473,53 @@ if (message.content.startsWith('!promo')) {
         }
         return;
     }
+    // ---- !buylist ----
+    if (message.content === '!buylist') {
+        let text = '**🛍️ Маркет еды и вещей**\n\n';
+        MARKET_ITEMS.forEach(item => {
+            text += `\`${item.id}\` — ${item.name} — ${item.price} 🪙\n`;
+        });
+        text += '\nКупить: `!buy <предмет> <количество>`';
+        message.reply(text);
+        return;
+    }
+
+    // ---- !buyitem <предмет> <количество> ----
+    if (message.content.startsWith('!buyitem')) {
+        const args = message.content.split(' ');
+        const itemId = args[1];
+        const qty = parseInt(args[2]) || 1;
+
+        const item = MARKET_ITEMS.find(i => i.id === itemId);
+        if (!item) {
+            message.reply('Такого предмета нет. Напиши `!buylist`, чтобы увидеть список.');
+            return;
+        }
+
+        // Если беременна(ен) — покупать еду может только партнёр
+        if (pregnancies[message.author.id] && (item.category === 'food' || item.category === 'junk' || item.category === 'basic')) {
+            message.reply('Ты сейчас беременна(ен) — еду для семьи должен покупать партнёр! 🤰');
+            return;
+        }
+
+        const totalCost = item.price * qty;
+        const balance = getBalance(message.author.id);
+
+        if (totalCost > balance) {
+            message.reply(`Недостаточно фишек! Нужно: ${totalCost} 🪙, у тебя: ${balance} 🪙`);
+            return;
+        }
+
+        setBalance(message.author.id, balance - totalCost);
+        const inv = getGeneralInventory(message.author.id);
+        inv[item.id] = (inv[item.id] || 0) + qty;
+        saveLists();
+
+        message.reply(`✅ Куплено: ${item.name} ×${qty} за ${totalCost} 🪙. Баланс: ${getBalance(message.author.id)} 🪙`);
+        return;
+    }
+
+    
 
     // ---- !auction <номер товара> <стартовая цена> <минуты> ----
     if (message.content.startsWith('!auction')) {
