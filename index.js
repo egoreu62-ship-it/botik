@@ -217,6 +217,58 @@ function calculateGridWin(grid, bet, roundMultiplier = 1) {
 
     return { totalWinnings, winningRows };
 }
+const CASCADE_MIN_MATCH = 5; // сколько одинаковых символов нужно на всей сетке 3×5, чтобы сработал каскад
+const CASCADE_MAX_STEPS = 6; // предохранитель от бесконечных каскадов
+
+// Сетка теперь по колонкам (5 колонок × 3 символа сверху вниз) — нужно для "падения"
+function spinColumnGrid() {
+    return Array.from({ length: 5 }, () => Array.from({ length: 3 }, () => pickWeightedSymbol()));
+}
+
+function formatColumnGrid(colGrid) {
+    const rows = [];
+    for (let r = 0; r < 3; r++) {
+        rows.push(colGrid.map(col => col[r].symbol).join(' | '));
+    }
+    return rows.join('\n');
+}
+
+// Находит символ, которого на всей сетке 5+ штук (не важно, где именно)
+function findCascadeMatch(colGrid) {
+    const counts = {};
+    const valueMap = {};
+    colGrid.forEach(col => col.forEach(cell => {
+        counts[cell.symbol] = (counts[cell.symbol] || 0) + 1;
+        valueMap[cell.symbol] = cell.value;
+    }));
+
+    let best = null, bestCount = 0;
+    for (const sym in counts) {
+        if (counts[sym] >= CASCADE_MIN_MATCH && counts[sym] > bestCount) {
+            bestCount = counts[sym];
+            best = sym;
+        }
+    }
+    if (!best) return null;
+    return { symbol: best, count: bestCount, value: valueMap[best] };
+}
+
+// Убирает совпавшие символы, остальные "падают" вниз, сверху досыпаются новые
+function cascadeDrop(colGrid, matchedSymbol) {
+    return colGrid.map(col => {
+        const remaining = col.filter(cell => cell.symbol !== matchedSymbol);
+        const removedCount = col.length - remaining.length;
+        const newCells = Array.from({ length: removedCount }, () => pickWeightedSymbol());
+        return [...newCells, ...remaining];
+    });
+}
+
+// Проверяет, есть ли ХОТЬ ОДИН возможный каскад на сетке (для принудительного проигрыша)
+function hasAnyCascade(colGrid) {
+    return findCascadeMatch(colGrid) !== null;
+}
+
+
 function formatGrid(grid) {
     return grid.map(row => row.map(s => s.symbol).join(' | ')).join('\n');
 }
@@ -1742,63 +1794,67 @@ startTurnTimer(); // запускаем таймер на самый первы�
             return;
         }
 
+      
         const houseEdgeRoll = Math.random();
-        let grid;
+        let colGrid;
 
         if (houseEdgeRoll < 0.25) {
-            // Принудительный проигрыш — перегенерируем, пока нет ни одной выигрышной строки
-            let attempt;
+            // Принудительный проигрыш — генерируем сетку без единого возможного каскада
             do {
-                attempt = spinGrid();
-            } while (calculateGridWin(attempt, bet).totalWinnings > 0);
-            grid = attempt;
+                colGrid = spinColumnGrid();
+            } while (hasAnyCascade(colGrid));
         } else {
-            grid = spinGrid();
+            colGrid = spinColumnGrid();
         }
 
         const spinMsg = await message.reply({
             embeds: [new EmbedBuilder()
                 .setColor(0x5865F2)
-                .setTitle('🎰 Казино')
-                .setDescription('🎲 🎲 🎲 🎲 🎲\n🎲 🎲 🎲 🎲 🎲\n🎲 🎲 🎲 🎲 🎲\n\nКрутим барабаны...')]
+                .setTitle('🍬 Казино — каскад')
+                .setDescription(formatColumnGrid(colGrid) + '\n\nПроверяем совпадения...')]
         });
 
-        // Анимация: барабаны останавливаются по одному, слева направо
-        for (let col = 1; col <= SLOT_COLS; col++) {
-            await sleep(400);
-            let frame = '';
-            for (let r = 0; r < SLOT_ROWS; r++) {
-                const rowStr = grid[r].map((s, i) => i < col ? s.symbol : '🎲').join(' | ');
-                frame += rowStr + '\n';
-            }
+        await sleep(1000);
+
+        let totalWinnings = 0;
+        let cascadeMultiplier = 1;
+        let cascadeCount = 0;
+        let log = '';
+
+        let match = findCascadeMatch(colGrid);
+
+        while (match && cascadeCount < CASCADE_MAX_STEPS) {
+            cascadeCount++;
+            const stepWinnings = Math.floor(bet * match.value * (match.count / CASCADE_MIN_MATCH) * cascadeMultiplier);
+            totalWinnings += stepWinnings;
+            log += `Каскад ${cascadeCount}: ${match.symbol} ×${match.count} — +${stepWinnings} 🪙 (множитель ×${cascadeMultiplier})\n`;
+
+            colGrid = cascadeDrop(colGrid, match.symbol);
+            cascadeMultiplier++;
+
             await spinMsg.edit({
                 embeds: [new EmbedBuilder()
-                    .setColor(0x5865F2)
-                    .setTitle('🎰 Казино')
-                    .setDescription(frame + (col < SLOT_COLS ? '\nКрутим барабаны...' : ''))]
+                    .setColor(0xffaa00)
+                    .setTitle('🍬 Казино — каскад')
+                    .setDescription(formatColumnGrid(colGrid) + `\n\n${log}\nНакоплено: ${totalWinnings} 🪙`)]
             });
+
+            await sleep(1200);
+            match = findCascadeMatch(colGrid);
         }
 
-        const { totalWinnings, winningRows } = calculateGridWin(grid, bet);
         const winnings = totalWinnings > 0 ? totalWinnings : -bet;
-        const isWin = totalWinnings > 0; // Оставили только здесь
-
         setBalance(message.author.id, balance + winnings);
 
+        const isWin = totalWinnings > 0;
         const casinoStats = getStats(message.author.id);
         if (isWin) casinoStats.casinoWins++; else casinoStats.casinoLosses++;
         saveLists();
         checkAchievements(message.author.id, message);
 
-        // Второе объявление const isWin отсюда полностью удалено
-
-        let resultText;
-        if (isWin) {
-            resultText = winningRows.map(w => `Строка ${w.row + 1}: ${w.matchCount} подряд (${w.symbol.symbol}) — +${w.winnings} 🪙`).join('\n');
-            resultText += `\n\n🎉 Выигрыш: ${totalWinnings} 🪙`;
-        } else {
-            resultText = `😔 Проигрыш: ${bet} 🪙`;
-        }
+        const resultText = isWin
+            ? `${log}\n🎉 Итого выигрыш: ${totalWinnings} 🪙`
+            : `😔 Совпадений не было. Проигрыш: ${bet} 🪙`;
 
         const gif = isWin
             ? WIN_GIFS[Math.floor(Math.random() * WIN_GIFS.length)]
@@ -1807,12 +1863,13 @@ startTurnTimer(); // запускаем таймер на самый первы�
         await spinMsg.edit({
             embeds: [new EmbedBuilder()
                 .setColor(isWin ? 0x00ff00 : 0xff0000)
-                .setTitle('🎰 Казино')
-                .setDescription(`${formatGrid(grid)}\n\n${resultText}\n\nБаланс: ${getBalance(message.author.id)} 🪙`)
+                .setTitle('🍬 Казино — каскад')
+                .setDescription(`${formatColumnGrid(colGrid)}\n\n${resultText}\n\nБаланс: ${getBalance(message.author.id)} 🪙`)
                 .setImage(gif)]
         });
         return;
     }
+       
 
 
           // ---- !daily (ежедневный бонус) ----
