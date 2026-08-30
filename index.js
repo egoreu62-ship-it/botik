@@ -2035,6 +2035,7 @@ client.on('messageCreate', async (message) => {
 
     
        
+       
        // ---- !sex (10% шанс на ребёнка, КД зависит от кардио) ----
     const RANDOM_NAMES = ['Саша', 'Женя', 'Максим', 'София', 'Артём', 'Вика', 'Дима', 'Настя', 'Игорь', 'Лера', "Арина"];
 
@@ -2117,21 +2118,31 @@ client.on('messageCreate', async (message) => {
         return;
     }
 
+    // ---- !abort (Прерывание беременности до 12 недель) ----
+    if (message.content === '!abort') {
+        const pregnancy = pregnancies[message.author.id];
 
-        // Случайно выбираем, кто из пары беременеет
-        const pregnantId = Math.random() < 0.5 ? message.author.id : partnerId;
-        const otherPartnerId = pregnantId === message.author.id ? partnerId : message.author.id;
+        if (!pregnancy) {
+            message.reply('Ты не беременна(ен) 🤷');
+            return;
+        }
 
-        pregnancies[pregnantId] = {
-            startedAt: Date.now(),
-            weeks: 38 + Math.floor(Math.random() * 5), // роды где-то на 38-42 неделе
-            partnerId: otherPartnerId
-        };
+        // Высчитываем текущую неделю с помощью твоей функции
+        const currentWeek = getPregnancyWeek(pregnancy);
+
+        // Если срок больше 12 недель — прерывание невозможно
+        if (currentWeek > 12) {
+            message.reply(`❌ На сроке **${currentWeek} недель** прерывание беременности уже невозможно! Плод слишком большой. Ждите родов! 🤰👶`);
+            return;
+        }
+
+        delete pregnancies[message.author.id];
         saveLists();
 
-        message.reply(`👶 Сюрприз! <@${pregnantId}> забеременел(а)! Проверить срок: \`!pregnancy\``);
+        message.reply('💔 Беременность успешно прервана на раннем сроке.');
         return;
     }
+
 
     
    
