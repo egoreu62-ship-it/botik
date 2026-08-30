@@ -72,18 +72,19 @@ function loadLists() {
             inventory: parsed.inventory || {},
             generalInventory: parsed.generalInventory || {}, // { userId: { itemId: количество } }
             pregnancies: parsed.pregnancies || {}, // { userId: { startedAt, weeks (случайный срок 38-42), partnerId } }
-            bodyStats: parsed.bodyStats || {} // { userId: { weight, chest, arms, legs } }
+            bodyStats: parsed.bodyStats || {},// { userId: { weight, chest, arms, legs } }
+            familyBalances: parsed.familyBalances || {}
         };
     } catch (e) {
-        return { blacklist: [], whitelist: [], likes: {}, balances: {}, lastDaily: {}, shopItems: {}, xp: {}, lastXpMessage: {}, marriages: {}, stats: {},  achievementsUnlocked: {}, children: {}, inventory: {}, generalInventory: {}, pregnancies: {}, bodyStats: {} };
+        return { blacklist: [], whitelist: [], likes: {}, balances: {}, lastDaily: {}, shopItems: {}, xp: {}, lastXpMessage: {}, marriages: {}, stats: {},  achievementsUnlocked: {}, children: {}, inventory: {}, generalInventory: {}, pregnancies: {}, bodyStats: {}, familyBalances: {} };
     }
 }
 
 function saveLists() {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ blacklist, whitelist, likes, balances, lastDaily,  redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked, children, inventory, generalInventory,  pregnancies, bodyStats  }, null, 2));
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ blacklist, whitelist, likes, balances, lastDaily,  redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked, children, inventory, generalInventory,  pregnancies, bodyStats, familyBalances  }, null, 2));
 }
 
-let { blacklist, whitelist, likes, balances, lastDaily, redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked, children, inventory, generalInventory, pregnancies, bodyStats   } = loadLists();
+let { blacklist, whitelist, likes, balances, lastDaily, redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked, children, inventory, generalInventory, pregnancies, bodyStats, familyBalances   } = loadLists();
 // ==== Системы Кулдаунов (Ограничения по времени) ====
 const casinoCooldowns = new Map(); // { userId: timestamp }
 const caseCooldowns = new Map();   // { userId: { timestamps: [], blockedUntil: null } }
@@ -1073,6 +1074,9 @@ if (message.content === '!help') {
 
         '**💰 Экономика**\n' +
         '`!balance` — узнать баланс фишек\n' +
+        '`!fbalance` — узнать баланс семейного банка\n' +
+        '`!fpay <сумма>` — внести фишки в семейный бюджет\n' +
+        '`!ftake <сумма>` — забрать фишки из семейного бюджета\n'
         '`!daily` — ежедневный бонус 2000 🪙\n' +
         '`!pay @человек <сумма>` — перевести фишки\n' +
         '`!promo <код>` — активировать промокод\n\n' +
@@ -1317,6 +1321,92 @@ if (message.content === '!help') {
         message.reply(`🪙 Твой баланс: ${getBalance(message.author.id)} фишек`);
         return;
     }
+        // ---- !fbalance (узнать баланс семьи) ----
+    if (message.content === '!fbalance') {
+        const partnerId = marriages[message.author.id];
+        if (!partnerId) {
+            message.reply('❌ Эта команда доступна только тем, кто состоит в браке! `!marry @человек`');
+            return;
+        }
+
+        // Создаем уникальный ключ для пары (всегда сортируем ID, чтобы ключ мужа и жены совпадал)
+        const familyKey = [message.author.id, partnerId].sort().join('_');
+        if (typeof familyBalances[familyKey] !== 'number') familyBalances[familyKey] = 0;
+
+        message.reply(`🏦 **Общий семейный бюджет:** ${familyBalances[familyKey]} 🪙`);
+        return;
+    }
+
+    // ---- !fpay <сумма> (положить деньги в семейный банк) ----
+    if (message.content.startsWith('!fpay')) {
+        const partnerId = marriages[message.author.id];
+        if (!partnerId) {
+            message.reply('❌ Ты не состоишь в браке, у тебя нет семейного бюджета!');
+            return;
+        }
+
+        const args = message.content.split(' ');
+        const amount = parseInt(args[1]);
+
+        if (!amount || amount <= 0) {
+            message.reply('Укажи сумму больше нуля. Пример: `!fpay 500`');
+            return;
+        }
+
+        const userBalance = getBalance(message.author.id);
+        if (amount > userBalance) {
+            message.reply(`Недостаточно фишек на твоем личном балансе! У тебя: ${userBalance} 🪙`);
+            return;
+        }
+
+        const familyKey = [message.author.id, partnerId].sort().join('_');
+        if (typeof familyBalances[familyKey] !== 'number') familyBalances[familyKey] = 0;
+
+        // Переводим деньги
+        setBalance(message.author.id, userBalance - amount);
+        familyBalances[familyKey] += amount;
+        saveLists();
+
+        message.reply(`💸 Ты внёс **${amount}** 🪙 в семейный банк. Текущий баланс семьи: **${familyBalances[familyKey]}** 🪙`);
+        return;
+    }
+
+    // ---- !ftake <сумма> (взять деньги из семейного банка) ----
+    if (message.content.startsWith('!ftake')) {
+        const partnerId = marriages[message.author.id];
+        if (!partnerId) {
+            message.reply('❌ Ты не состоишь в браке!');
+            return;
+        }
+
+        const args = message.content.split(' ');
+        const amount = parseInt(args[1]);
+
+        if (!amount || amount <= 0) {
+            message.reply('Укажи сумму больше нуля. Пример: `!ftake 500`');
+            return;
+        }
+
+        const familyKey = [message.author.id, partnerId].sort().join('_');
+        if (typeof familyBalances[familyKey] !== 'number') familyBalances[familyKey] = 0;
+
+        if (amount > familyBalances[familyKey]) {
+            message.reply(`В семейном банке нет такой суммы! Там всего: ${familyBalances[familyKey]} 🪙`);
+            return;
+        }
+
+        // Забираем деньги
+        familyBalances[familyKey] -= amount;
+        setBalance(message.author.id, getBalance(message.author.id) + amount);
+        saveLists();
+
+        message.reply(`💰 Ты забрал **${amount}** 🪙 из семейного банка на личный счет. Баланс семьи: **${familyBalances[familyKey]}** 🪙`);
+        return;
+    }
+
+
+
+    
      // ---- !profile [@человек] ----
     if (message.content.startsWith('!profile')) {
         const target = message.mentions.users.first() || message.author;
