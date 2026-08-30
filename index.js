@@ -630,6 +630,46 @@ setInterval(async () => {
     }
 }, 60000);
 
+// ==== Жизнедеятельность детей (Тамагочи-система) ====
+setInterval(async () => {
+    const now = Date.now();
+    
+    for (const familyKey in children) {
+        const familyChildren = children[familyKey];
+        if (!familyChildren || familyChildren.length === 0) continue;
+
+        familyChildren.forEach(child => {
+            if (typeof child.satiety !== 'number') child.satiety = 80;
+            if (typeof child.happiness !== 'number') child.happiness = 80;
+
+            child.satiety = Math.max(0, child.satiety - 5);
+            child.happiness = Math.max(0, child.happiness - 4);
+
+            if (child.desire && now > child.desireExpires) {
+                child.desire = null;
+                child.happiness = Math.max(0, child.happiness - 20);
+            }
+
+            if (!child.desire && Math.random() < 0.15) {
+                const randomItem = MARKET_ITEMS[Math.floor(Math.random() * MARKET_ITEMS.length)];
+                child.desire = randomItem.id;
+                child.desireExpires = now + (2 * 60 * 60 * 1000);
+
+                try {
+                    client.guilds.fetch(GUILD_ID).then(guild => {
+                        guild.channels.fetch(currentVoiceChannelId).then(channel => {
+                            const [parent1, parent2] = familyKey.split('_');
+                            channel.send(`👶 **Тамагочи:** Ребенок **${child.name}** у родителей <@${parent1}> and <@${parent2}> капризничает и просит: ${randomItem.name}! У вас есть 2 часа, чтобы дать ему это командой \`!givekid ${child.name} ${randomItem.id}\`!`);
+                        }).catch(() => {});
+                    }).catch(() => {});
+                } catch (e) {}
+            }
+        });
+    }
+    saveLists();
+}, 30 * 60 * 1000);
+
+
 // Проверка родов — раз в час смотрим, не пора ли рожать
 setInterval(async () => {
     for (const userId in pregnancies) {
@@ -3719,51 +3759,4 @@ app.listen(PANEL_PORT, '127.0.0.1', () => {
     console.log(`🖥️ Панель управления запущена на порту ${PANEL_PORT} (только localhost)`);
 });
 
-// ==== Жизнедеятельность детей (Тамагочи-система) ====
-setInterval(async () => {
-    const now = Date.now();
-    
-    for (const familyKey in children) {
-        const familyChildren = children[familyKey];
-        if (!familyChildren || familyChildren.length === 0) continue;
-
-        familyChildren.forEach(child => {
-            // Инициализация шкал для старых детей, если их не было
-            if (typeof child.satiety !== 'number') child.satiety = 80;
-            if (typeof child.happiness !== 'number') child.happiness = 80;
-
-            // 1. Естественное падение шкал каждые 30 минут
-            child.satiety = Math.max(0, child.satiety - 5);
-            child.happiness = Math.max(0, child.happiness - 4);
-
-            // 2. Проверка просроченной хотелки
-            if (child.desire && now > child.desireExpires) {
-                child.desire = null; // Хотелка сгорела
-                child.happiness = Math.max(0, child.happiness - 20); // Обиделся, счастье сильно упало
-                console.log(`😾 Ребенок ${child.name} не получил желаемое вовремя. Счастье упало.`);
-            }
-
-            // 3. Рандомное появление новой хотелки (шанс 15% каждые 30 минут)
-            if (!child.desire && Math.random() < 0.15) {
-                // Выбираем случайный предмет из MARKET_ITEMS
-                const randomItem = MARKET_ITEMS[Math.floor(Math.random() * MARKET_ITEMS.length)];
-                
-                child.desire = randomItem.id;
-                child.desireExpires = now + (2 * 60 * 60 * 1000); // Дается 2 часа на выполнение!
-
-                // Пытаемся отправить сообщение родителям на сервер
-                try {
-                    client.guilds.fetch(GUILD_ID).then(guild => {
-                        guild.channels.fetch(currentVoiceChannelId).then(channel => {
-                            // Ищем ID родителей из ключа пары (формат: ID1_ID2)
-                            const [parent1, parent2] = familyKey.split('_');
-                            channel.send(`👶 **Тамагочи:** Ребенок **${child.name}** у родителей <@${parent1}> и <@${parent2}> капризничает и просит: ${randomItem.name}! У вас есть 2 часа, чтобы дать ему это командой \`!givekid ${child.name} ${randomItem.id}\`!`);
-                        }).catch(() => {});
-                    }).catch(() => {});
-                } catch (e) {}
-            }
-        });
-    }
-    saveLists();
-}, 30 * 60 * 1000);
 
