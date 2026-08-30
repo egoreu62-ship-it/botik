@@ -84,6 +84,10 @@ function saveLists() {
 }
 
 let { blacklist, whitelist, likes, balances, lastDaily, redeemedPromo, shopItems, xp, lastXpMessage, marriages, stats, achievementsUnlocked, children, inventory, generalInventory, pregnancies, bodyStats   } = loadLists();
+// ==== Системы Кулдаунов (Ограничения по времени) ====
+const casinoCooldowns = new Map(); // { userId: timestamp }
+const caseCooldowns = new Map();   // { userId: { timestamps: [], blockedUntil: null } }
+
 
 function getBalance(userId) {
     if (typeof balances[userId] !== 'number') balances[userId] = 1000;
@@ -1743,11 +1747,54 @@ if (message.content === '!help') {
     
    
 
-     // ---- !case [id] (список кейсов или открыть конкретный) ----
+     
+    // ---- !case [id] (список кейсов или открыть конкретный) ----
     if (message.content.startsWith('!case')) {
         const args = message.content.split(' ');
         const caseId = args[1];
 
+        // Спам-фильтр срабатывает ТОЛЬКО если игрок открывает кейс
+        if (caseId) {
+            const userId = message.author.id;
+            const now = Date.now();
+            const FIVE_MIN_MS = 5 * 60 * 1000; // Окно в 5 минут
+            const MAX_OPENINGS = 15; // Лимит кейсов
+
+            if (!caseCooldowns.has(userId)) {
+                caseCooldowns.set(userId, { timestamps: [], blockedUntil: null });
+            }
+
+            const userCD = caseCooldowns.get(userId);
+
+            // 1. Проверяем активную блокировку за спам
+            if (userCD.blockedUntil && now < userCD.blockedUntil) {
+                const timeLeft = Math.ceil((userCD.blockedUntil - now) / 1000);
+                const minLeft = Math.floor(timeLeft / 60);
+                const secLeft = timeLeft % 60;
+                message.reply(`🚨 Ты превысил лимит открытия кейсов (15 шт за 5 минут)! Доступ заблокирован на **${minLeft}м ${secLeft}с**`);
+                return;
+            }
+
+            // 2. Очищаем кейсы, которые были открыты более 5 минут назад
+            userCD.timestamps = userCD.timestamps.filter(time => now - time < FIVE_MIN_MS);
+
+            // 3. Проверяем превышение лимита в 15 кейсов
+            if (userCD.timestamps.length >= MAX_OPENINGS) {
+                // Блокируем ровно на 5 минут от текущего момента спама
+                userCD.blockedUntil = now + FIVE_MIN_MS;
+                
+                const timeLeft = Math.ceil((userCD.blockedUntil - now) / 1000);
+                const minLeft = Math.floor(timeLeft / 60);
+                const secLeft = timeLeft % 60;
+                message.reply(`🚨 Спам-фильтр! Открыто слишком много кейсов. Доступ заблокирован на **${minLeft}м ${secLeft}с**`);
+                return;
+            }
+
+            // Проверки пройдены, засчитываем текущее открытие кейса
+            userCD.timestamps.push(now);
+        }
+
+        // Если ID кейса нет — просто выводим список (без кулдауна)
         if (!caseId) {
             let text = '**📦 Доступные кейсы**\n\n';
             CASES.forEach(c => {
@@ -2274,8 +2321,28 @@ startTurnTimer(); // запускаем таймер на самый первы�
     }
 
     
-       // ---- !casino <ставка> ----
+    
+        // ---- !casino <ставка> ----
     if (message.content.startsWith('!casino')) {
+        
+        // Кулдаун проверяем ТОЛЬКО если это не бонус-бай
+        if (!message.content.startsWith('!casino bonus')) {
+            const userId = message.author.id;
+            const now = Date.now();
+            const CASINO_CD_MS = 60 * 1000; // 1 минута
+
+            if (casinoCooldowns.has(userId)) {
+                const expirationTime = casinoCooldowns.get(userId) + CASINO_CD_MS;
+                if (now < expirationTime) {
+                    const timeLeft = Math.ceil((expirationTime - now) / 1000);
+                    message.reply(`⏳ Крутить казик можно раз в минуту! Подожди ещё **${timeLeft} сек.**`);
+                    return;
+                }
+            }
+            // Все проверки пройдены, вешаем кулдаун на обычную игру
+            casinoCooldowns.set(userId, now);
+        }
+
         const args = message.content.split(' ');
         const bet = parseInt(args[1]);
 
@@ -2292,11 +2359,13 @@ startTurnTimer(); // запускаем таймер на самый первы�
 
         let dynamicMaxBet = Math.floor(500 + (balance * 0.10));
        
-
         if (bet > dynamicMaxBet) {
             message.reply(`❌ Твой лимит ставки сейчас — не больше ${dynamicMaxBet} 🪙! (Лимит растёт вместе с балансом)`);
             return;
         }
+
+        // Дальше идёт твой неизменённый код генерации сетки (const houseEdgeRoll = Math.random(); и т.д.)
+
 
       
         const houseEdgeRoll = Math.random();
