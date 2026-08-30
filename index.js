@@ -1083,79 +1083,131 @@ client.on('messageCreate', async (message) => {
         return;
     }
 
-   // ---- !help ----
-    if (message.content === '!help') {
-    // Массив строк для контроля лимита символов
-    const helpParts = [
-        '**🎵 Музыка**\n' +
-        '`!play <название/ссылка>` — включить трек (SoundCloud или YouTube)\n' +
-        '`!skip` — пропустить трек\n' +
-        '`!voteskip` — голосование за пропуск\n' +
-        '`!pause` / `!resume` — пауза/продолжить\n' +
-        '`!stop` — остановить и очистить очередь\n' +
-        '`!queue` — очередь треков\n' +
-        '`!nowplaying` — текущий трек\n' +
-        '`!volume <0-200>` — громкость\n' +
-        '`!loop` — повтор трека вкл/выкл\n' +
-        '`!like` — лайкнуть текущий трек\n' +
-        '`!radio` — играть твои лайкнутые треки по кругу\n' +
-        '`!anime` — случайный опенинг аниме\n\n' +
-        '**🎲 Игры и развлечения**\n' +
-        '`!kubik` — бросить кубик\n' +
-        '`!коктель <ингредиенты>` — узнать коктейль по составу\n' +
-        '`!67` — не спрашивай просто попробуй\n' +
-        '`!ttt @соперник [ставка]` — крестики-нолики\n' +
-        '`!battleship @соперник` — морской бой\n' +
-        '`!casino <ставка>` — слоты 777\n' +
-        '`!casino bonus <ставка>` — бонус-бай\n' +
-        '`!blackjack <ставка>` — блэкджек\n' +
-        '`!duel @соперник <ставка>` — дуэль на фишки\n\n' +
-        '`!profile [@человек]` — профиль\n' +
-        '`!top [balance|level|casino|duels]` — топ игроков\n' +
-        '`!marry @человек` — предложение брака\n' +
-        '`!divorce` — развод\n' +
-        '`!family [@человек]` — посмотреть семью\n' +
-        '`!sex` — попытка завести ребёнка\n' +
-        '`!case [id]` — список кейсов / открыть кейс\n' +
-        '`!inventory [@человек]` — инвентарь\n' +
-        '`!upgrade <номер> <множитель>` — апгрейд скина\n' +
-        '`!sell <номер>` — продать скин\n' +
-        '`!achievements` — список достижений\n' +       
-        '`!shop` — список ролей в магазине\n' +
-        '`!buy <номер>` — купить роль\n' +
-        '`!auction <номер> <цена> <минуты>` — аукцион\n' +
-        '`!bid <сумма>` — сделать ставку\n\n',
+         // ---- !help (Красивое меню с кнопками) ----
+    if (message.content.startsWith('!help')) {
+        // Тексты для каждой категории
+        const helpPages = {
+            main: '📚 **Центр Помощи Mogster Bot**\n\nДобро пожаловать! Чтобы не забивать чат огромными полотнами текста, я распределил все команды по кнопкам ниже. Нажми на нужный раздел, чтобы отобразить его команды!',
+            
+            music: '**🎵 Музыкальный плеер**\n\n' +
+                   '`!play <название/ссылка>` — включить трек (SoundCloud или YouTube)\n' +
+                   '`!skip` — пропустить текущий трек\n' +
+                   '`!voteskip` — запустить голосование за пропуск\n' +
+                   '`!pause` / `!resume` — поставить на паузу / продолжить\n' +
+                   '`!stop` — остановить плеер и очистить очередь\n' +
+                   '`!queue` — посмотреть список треков в очереди\n' +
+                   '`!nowplaying` — прогресс-бар текущего трека\n' +
+                   '`!volume <0-200>` — изменить громкость звука\n' +
+                   '`!loop` — включить/выключить повтор трека\n' +
+                   '`!like` — добавить трек в свои лайки\n' +
+                   '`!radio` — запустить поток из твоих лайков\n' +
+                   '`!anime` — включить случайный аниме опенинг',
+            
+            games: '**🎲 Игры, Казино и Развлечения**\n\n' +
+                   '`!kubik` — бросить кубик (1-6)\n' +
+                   '`!коктель <ингредиенты>` — рецепт коктейля из бара\n' +
+                   '`!67` — секретная мем-команда\n' +
+                   '`!ttt @соперник [ставка]` — крестики-нолики на фишки\n' +
+                   '`!battleship @соперник` — морской бой на поле 5х5\n' +
+                   '`!casino <ставка>` — слоты 777 (КД: раз в минуту)\n' +
+                   '`!casino bonus <ставка>` — бонус-раунд из 10 спинов (без КД)\n' +
+                   '`!blackjack <ставка>` — блэкджек против дилера\n' +
+                   '`!duel @соперник <ставка>` — дуэль-рулетка на фишки\n' +
+                   '`!case [id]` — список кейсов / открыть кейс (лимит: 15 за 5 мин)\n' +
+                   '`!inventory [@человек]` — посмотреть оружейные скины\n' +
+                   '`!upgrade <номер> <множитель>` — рискнуть скином на апгрейд\n' +
+                   '`!sell <номер>` — продать скин боту за 80% от цены\n' +
+                   '`!achievements` — список достижений и наград',
+            
+            economy: '**💰 Экономическая система**\n\n' +
+                     '`!balance` — узнать твой личный баланс фишек\n' +
+                     '`!fbalance` — баланс семейного сейфа\n' +
+                     '`!fpay <сумма>` — положить фишки в семейный бюджет\n' +
+                     '`!ftake <сумма>` — забрать фишки из семейного банка\n' +
+                     '`!daily` — забрать ежедневный бонус 2000 🪙\n' +
+                     '`!pay @человек <сумма>` — перевести фишки (комиссия 5%, для семьи — 0%)\n' +
+                     '`!promo <код>` — активировать секретный промокод',
+            
+            family: '**👨‍👩‍👧 Семья, Спорт и Отношения (Тамагочи)**\n\n' +
+                    '`!profile [@человек]` — статистика, брак, дети и уровни\n' +
+                    '`!top [balance|level|casino|duels]` — топ-10 игроков сервера\n' +
+                    '`!marry @человек` — сделать предложение брака\n' +
+                    '`!divorce` — развестись с партнером\n' +
+                    '`!family [@человек]` — древо семьи, детей и их статы\n' +
+                    '`!sex` — завести ребенка (шанс 10%, КД снижается от кардио)\n' +
+                    '`!pregnancy [@человек]` — статус беременности и размер плода\n' +
+                    '`!abort` — прервать беременность (строго до 12 недель)\n' +
+                    '`!givekid <имя> <предмет>` — дать ребенку вещь (выполнить каприз)\n' +
+                    '`!renamekid <старое имя> = <новое имя>` — переименовать (нужно согласие супруга)\n' +
+                    '`!kindergarten/!school/!walk <имя>` — развитие ребёнка\n' +
+                    '`!weight [@человек]` — параметры тела и выносливости\n' +
+                    '`!eat <предмет>` — покушать самому из инвентаря\n' +
+                    '`!gym <chest|arms|legs|cardio>` — тренировка мышц (лимит: 5 в час)',
+            
+            other: '**🔧 Разное**\n\n' +
+                   '`!test` — послать диагностический сигнал синусоиды в войс'
+        };
 
-        '**💰 Экономика**\n' +
-        '`!balance` — узнать баланс фишек\n' +
-        '`!fbalance` — узнать баланс семейного банка\n' +
-        '`!fpay <сумма>` — внести фишки в семейный бюджет\n' +
-        '`!ftake <сумма>` — забрать фишки из семейного бюджета\n' +
-        '`!daily` — ежедневный бонус 2000 🪙\n' +
-        '`!pay @человек <сумма>` — перевести фишки\n' +
-        '`!promo <код>` — активировать промокод\n\n' +
-        '**👨‍👩‍👧 Семья и жизнь**\n' +
-        '`!buylist` / `!buyitem <предмет> <кол-во>` — магазин еды\n' +
-        '`!pregnancy [@человек]` — статус беременности\n' +
-        '`!abort` — прервать беременность\n' +
-        '`!givekid <имя> <предмет>` — дать ребенку предмет/выполнить каприз\n' +
-        '`!renamekid <старое имя> = <новое имя>` — переименовать ребенка\n' +
-        '`!kindergarten/!school/!walk <имя>` — развитие ребёнка\n' +
-        '`!weight [@человек]` — параметры тела и кардио\n' +
-        '`!eat <предмет>` — поесть\n' +
-        '`!gym <chest|arms|legs|cardio>` — тренировка\n\n' +   
-        '**🔧 Другое**\n' +
-        '`!test` — тестовый сигнал'
-    ];
+        // Создаем первый ряд кнопок
+        const row1 = new ActionRowBuilder().addComponents( //
+            new ButtonBuilder().setCustomId('help_main').setLabel('🏠 Главная').setStyle(ButtonStyle.Secondary), //
+            new ButtonBuilder().setCustomId('help_music').setLabel('🎵 Музыка').setStyle(ButtonStyle.Primary), //
+            new ButtonBuilder().setCustomId('help_games').setLabel('🎲 Развлечения').setStyle(ButtonStyle.Primary) //
+        ); //
 
-    try {
-        await message.reply(helpParts[0]);
-        await message.channel.send(helpParts[1]);
-    } catch (error) {
-        console.error('Ошибка отправки !help:', error);
+        // Создаем второй ряд кнопок
+        const row2 = new ActionRowBuilder().addComponents( //
+            new ButtonBuilder().setCustomId('help_economy').setLabel('💰 Экономика').setStyle(ButtonStyle.Success), //
+            new ButtonBuilder().setCustomId('help_family').setLabel('👨‍👩‍👧 Семья и Жизнь').setStyle(ButtonStyle.Success), //
+            new ButtonBuilder().setCustomId('help_other').setLabel('🔧 Другое').setStyle(ButtonStyle.Danger) //
+        ); //
+
+        // Отправляем стартовое сообщение
+        const helpMessage = await message.reply({
+            content: helpPages.main,
+            components: [row1, row2] //
+        });
+
+        // Создаем коллектор для отслеживания нажатий на кнопки
+        const collector = helpMessage.createMessageComponentCollector({
+            componentType: ComponentType.Button, //
+            time: 300000 // Меню будет активно 5 минут после вызова
+        });
+
+        collector.on('collect', async (interaction) => {
+            // Проверяем, что на кнопку нажал именно тот, кто вызвал !help
+            if (interaction.user.id !== message.author.id) {
+                await interaction.reply({ content: '❌ Ты не можешь управлять этим меню! Вызови свое через `!help`.', ephemeral: true }); //
+                return;
+            }
+
+            // Определяем, какую страницу показать
+            const pageKey = interaction.customId.replace('help_', ''); //
+            const pageContent = helpPages[pageKey] || helpPages.main; //
+
+            // Обновляем сообщение (Discord сам красиво анимирует переключение текста)
+            await interaction.update({
+                content: pageContent,
+                components: [row1, row2] // Кнопки оставляем на месте
+            });
+        });
+
+        // Когда время вышло, отключаем кнопки, чтобы они стали серыми и неактивными
+        collector.on('end', () => {
+            const disabledRow1 = new ActionRowBuilder().addComponents( //
+                ...row1.components.map(b => ButtonBuilder.from(b).setDisabled(true)) //
+            ); //
+            const disabledRow2 = new ActionRowBuilder().addComponents( //
+                ...row2.components.map(b => ButtonBuilder.from(b).setDisabled(true)) //
+            ); //
+
+            helpMessage.edit({ components: [disabledRow1, disabledRow2] }).catch(() => {}); //
+        });
+
+        return;
     }
-    return;
-}
+
+
 
 
 
@@ -1634,53 +1686,35 @@ client.on('messageCreate', async (message) => {
         message.reply(text);
         return;
     }
-    // ---- !feed <имя ребёнка> <предмет> ----
+       // ---- !feed <имя ребёнка> <предмет> ----
     if (message.content.startsWith('!feed')) {
         const args = message.content.split(' ');
         const itemId = args[args.length - 1];
         const childName = args.slice(1, -1).join(' ');
-
         const partnerId = marriages[message.author.id];
-        if (!partnerId) {
-            message.reply('Нужно быть в браке!');
-            return;
-        }
-
+        if (!partnerId) return message.reply('Нужно быть в браке!');
         const familyKey = [message.author.id, partnerId].sort().join('_');
         const familyChildren = children[familyKey] || [];
         const child = familyChildren.find(c => c.name.toLowerCase() === childName.toLowerCase());
-
-        if (!child) {
-            message.reply('Не нашёл ребёнка с таким именем. Напиши так: `!feed Имя предмет`');
-            return;
-        }
-
+        if (!child) return message.reply('Не нашёл ребёнка с таким именем.');
         const item = MARKET_ITEMS.find(i => i.id === itemId);
-        if (!item || (item.category !== 'food' && item.category !== 'junk' && item.category !== 'basic')) {
-            message.reply('Это не еда. Напиши `!buylist`, чтобы увидеть съедобные предметы.');
-            return;
-        }
-
+        if (!item || (item.category !== 'food' && item.category !== 'junk' && item.category !== 'basic')) return message.reply('Это не еда.');
         const inv = getGeneralInventory(message.author.id);
-        if (!inv[itemId] || inv[itemId] <= 0) {
-            message.reply(`У тебя нет ${item.name}. Купи через \`!buyitem ${itemId}\``);
-            return;
-        }
-
+        if (!inv[itemId] || inv[itemId] <= 0) return message.reply(`У тебя нет ${item.name}.`);
         inv[itemId]--;
-
+        if (typeof child.satiety !== 'number') child.satiety = 80;
+        child.satiety = Math.min(100, child.satiety + 25);
         if (item.healthy) {
             child.iq = Math.min(200, (child.iq || 100) + 2);
             child.appearance = Math.min(200, (child.appearance || 100) + 1);
         } else {
             child.appearance = Math.max(0, (child.appearance || 100) - 2);
         }
-
         saveLists();
-
-        message.reply(`🍽️ ${child.name} покушал(а) ${item.name}. IQ: ${child.iq}, внешность: ${child.appearance}`);
+        message.reply(`🍽️ ${child.name} покушал(а) ${item.name}. Сытость: [${child.satiety}/100], IQ: ${child.iq}`);
         return;
     }
+
         // ---- !givekid <имя> <предмет> ----
     if (message.content.startsWith('!givekid')) {
         const args = message.content.split(' ');
@@ -2117,7 +2151,6 @@ client.on('messageCreate', async (message) => {
         sexSession.count = 0;
         sexSession.blockedUntil = 0;
 
-        message.reply(`👶 Сюрприз! <@${pregnantId}> забеременел(а)! Проверить срок: \`!pregnancy\``);
         return;
     }
 
@@ -2732,7 +2765,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         if (!message.content.startsWith('!casino bonus')) {
             const userId = message.author.id;
             const now = Date.now();
-            const CASINO_CD_MS = 60 * 1000; // 1 минута
+            const CASINO_CD_MS = 30 * 1000; // 30 sec 
 
             if (casinoCooldowns.has(userId)) {
                 const expirationTime = casinoCooldowns.get(userId) + CASINO_CD_MS;
@@ -3106,34 +3139,26 @@ if (message.content.startsWith('!promo')) {
 
 
 
-    // ---- !pay @человек <сумма> ----
-if (message.content.startsWith('!pay')) {
-    const target = message.mentions.users.first();
-    const args = message.content.split(' ');
-    const amount = parseInt(args[args.length - 1]);
-
-    if (!target || target.bot || target.id === message.author.id) {
-        message.reply('Напиши так: `!pay @человек 100`');
+       // ---- !pay @человек <сумма> ----
+    if (message.content.startsWith('!pay')) {
+        const target = message.mentions.users.first();
+        const args = message.content.split(' ');
+        const amount = parseInt(args[args.length - 1]);
+        if (!target || target.bot || target.id === message.author.id) return message.reply('Напиши так: `!pay @человек 100`');
+        if (!amount || amount <= 0) return message.reply('Укажи сумму больше нуля.');
+        const senderBalance = getBalance(message.author.id);
+        const isFamily = marriages[message.author.id] === target.id;
+        const commission = isFamily ? 0 : Math.ceil(amount * 0.05);
+        const totalDeduct = amount + commission;
+        if (totalDeduct > senderBalance) {
+            return message.reply(isFamily ? `❌ Недостаточно фишек! Нужно: ${amount} 🪙` : `❌ Недостаточно фишек с учетом комиссии 5%! Нужно: ${totalDeduct} 🪙 (Перевод: ${amount} + Комиссия: ${commission})`);
+        }
+        setBalance(message.author.id, senderBalance - totalDeduct);
+        setBalance(target.id, getBalance(target.id) + amount);
+        let feeText = isFamily ? ' (Без комиссии, вы в браке 💍)' : ` (Списана комиссия за перевод: ${commission} 🪙 🏦)`;
+        message.reply(`💸 Переведено ${amount} 🪙 пользователю ${target}.${feeText}\nТвой баланс: ${getBalance(message.author.id)} 🪙`);
         return;
     }
-
-    if (!amount || amount <= 0) {
-        message.reply('Укажи сумму больше нуля: `!pay @человек 100`');
-        return;
-    }
-
-    const senderBalance = getBalance(message.author.id);
-    if (amount > senderBalance) {
-        message.reply(`Недостаточно фишек! У тебя: ${senderBalance} 🪙`);
-        return;
-    }
-
-    setBalance(message.author.id, senderBalance - amount);
-    setBalance(target.id, getBalance(target.id) + amount);
-
-    message.reply(`💸 Переведено ${amount} 🪙 пользователю ${target}. Твой баланс: ${getBalance(message.author.id)} 🪙`);
-    return;
-}
 
 
 
