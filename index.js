@@ -67,7 +67,7 @@ function loadLists() {
             lastXpMessage: parsed.lastXpMessage || {},
             marriages: parsed.marriages || {},
             stats: parsed.stats || {}, // { userId: { duelWins, duelStreak, casinoWins, casinoLosses, casesOpened } }
-            achievementsUnlocked: parsed.achievementsUnlocked || {}
+            achievementsUnlocked: parsed.achievementsUnlocked || {},
             children: parsed.children || {}
         };
     } catch (e) {
