@@ -1825,12 +1825,12 @@ startTurnTimer(); // запускаем таймер на самый первы�
 
         while (match && cascadeCount < CASCADE_MAX_STEPS) {
             cascadeCount++;
-            const stepWinnings = Math.floor(bet * match.value * (match.count / CASCADE_MIN_MATCH) * cascadeMultiplier);
+            const stepWinnings = Math.floor(bet * match.value * 0.3 * cascadeMultiplier);
             totalWinnings += stepWinnings;
             log += `Каскад ${cascadeCount}: ${match.symbol} ×${match.count} — +${stepWinnings} 🪙 (множитель ×${cascadeMultiplier})\n`;
 
             colGrid = cascadeDrop(colGrid, match.symbol);
-            cascadeMultiplier++;
+            cascadeMultiplier += 0.3;
 
             await spinMsg.edit({
                 embeds: [new EmbedBuilder()
@@ -1841,6 +1841,10 @@ startTurnTimer(); // запускаем таймер на самый первы�
 
             await sleep(1200);
             match = findCascadeMatch(colGrid);
+        }
+                const MAX_TOTAL_MULTIPLIER = 15; // максимум ×15 от ставки за весь раунд, независимо от каскадов
+        if (totalWinnings > bet * MAX_TOTAL_MULTIPLIER) {
+            totalWinnings = bet * MAX_TOTAL_MULTIPLIER;
         }
 
         const winnings = totalWinnings > 0 ? totalWinnings : -bet;
