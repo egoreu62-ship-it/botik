@@ -235,11 +235,13 @@ function getFruitForWeek(week) {
     return result.fruit;
 }
 
-// 1 неделя беременности = 1 реальный день
+
+// 1 неделя беременности = 1 реальный час
 function getPregnancyWeek(pregnancy) {
-    const daysPassed = (Date.now() - pregnancy.startedAt) / (24 * 60 * 60 * 1000);
-    return Math.min(42, Math.floor(daysPassed) + 1);
+    const hoursPassed = (Date.now() - pregnancy.startedAt) / (60 * 60 * 1000); // <-- Изменили деление на 1 час
+    return Math.min(42, Math.floor(hoursPassed) + 1);
 }
+
 
 
 
@@ -628,7 +630,8 @@ setInterval(async () => {
     } catch (e) {
         // тихо игнорируем — не критично
     }
-}, 60000);
+}, 60 * 1000); // теперь проверяем каждую минуту, чтобы роды начались вовремя!
+
 
 // ==== Жизнедеятельность детей (Тамагочи-система) ====
 setInterval(async () => {
