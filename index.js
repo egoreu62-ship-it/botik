@@ -2448,8 +2448,11 @@ if (message.content.startsWith('!promo')) {
         return;
     }
 
-    // ---- !buy <номер> ----
-    if (message.content.startsWith('!buy')) {
+   // ---- !buy <номер> ----
+    // Разделяем сообщение по пробелам и берем только первое слово (саму команду)
+    const firstWord = message.content.split(' ')[0];
+
+    if (firstWord === '!buy') { // <--- Теперь совпадение должно быть СТРОГИМ
         const args = message.content.split(' ');
         const index = parseInt(args[1]) - 1;
 
@@ -2458,13 +2461,13 @@ if (message.content.startsWith('!promo')) {
             return;
         }
 
-               const item = shopItems[index];
+        const item = shopItems[index];
         const balance = getBalance(message.author.id);
         const discount = getShopDiscount(message.author.id);
         const finalPrice = Math.floor(item.price * (1 - discount));
 
         if (finalPrice > balance) {
-            message.reply(`Недостаточно фишек! Нужно: ${item.price} 🪙, у тебя: ${balance} 🪙`);
+            message.reply(`Недостаточно фишек! Нужно: ${finalPrice} 🪙, у тебя: ${balance} 🪙`); // Поправил item.price на finalPrice, чтобы в ошибке писалась цена со скидкой
             return;
         }
 
@@ -2474,7 +2477,7 @@ if (message.content.startsWith('!promo')) {
         }
 
         try {
-             await message.member.roles.add(item.roleId);
+            await message.member.roles.add(item.roleId);
             setBalance(message.author.id, balance - finalPrice);
             message.reply(`✅ Куплено: **${item.roleName}**! ${discount > 0 ? `(скидка ${Math.round(discount * 100)}%) ` : ''}Баланс: ${getBalance(message.author.id)} 🪙`);
         } catch (error) {
@@ -2483,6 +2486,7 @@ if (message.content.startsWith('!promo')) {
         }
         return;
     }
+
     // ---- !buylist ----
     if (message.content === '!buylist') {
         let text = '**🛍️ Маркет еды и вещей**\n\n';
