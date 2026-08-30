@@ -849,6 +849,8 @@ client.on('messageCreate', async (message) => {
             '`!top [balance|level|casino|duels]` — топ игроков\n' +
             '`!marry @человек` — предложение брака\n' +
             '`!divorce` — развод\n' +
+            '`!family [@человек]` — посмотреть семью\n' +
+            '`!sex` — попытка завести ребёнка (нужен брак, шанс 10%, кулдаун 5 мин)\n' +
             '`!case <цена>` — открыть кейс с призом\n' +
             '`!achievements` — список достижений\n' +       
             '`!shop` — список ролей в магазине\n' +
@@ -1101,7 +1103,8 @@ client.on('messageCreate', async (message) => {
             .setDescription(
                 `**Баланс:** ${getBalance(target.id)} 🪙\n` +
                 `**Уровень:** ${level} (${userXp} / ${Math.floor(nextLevelXp)} XP)\n` +
-                `**В браке с:** ${partnerId ? `<@${partnerId}>` : 'ни с кем 💔'}\n\n` +
+                `**В браке с:** ${partnerId ? `<@${partnerId}>` : 'ни с кем 💔'}\n` +
+                `**Детей:** ${partnerId ? (children[[target.id, partnerId].sort().join('_')] || []).length : 0}\n\n` +
                 `**Победы в дуэлях:** ${userStats.duelWins} (серия: ${userStats.duelStreak})\n` +
                 `**Победы в казино:** ${userStats.casinoWins}\n` +
                 `**Проигрыши в казино:** ${userStats.casinoLosses}\n` +
@@ -1222,6 +1225,69 @@ client.on('messageCreate', async (message) => {
         saveLists();
 
         message.reply(`💔 ${message.author} развёлся с <@${partnerId}>`);
+        return;
+    }
+
+    // ---- !family [@человек] ----
+    if (message.content.startsWith('!family')) {
+        const target = message.mentions.users.first() || message.author;
+        const partnerId = marriages[target.id];
+
+        if (!partnerId) {
+            message.reply(`${target === message.author ? 'Ты' : target.username} не в браке 💔`);
+            return;
+        }
+
+        const familyKey = [target.id, partnerId].sort().join('_');
+        const familyChildren = children[familyKey] || [];
+
+        let text = `👨‍👩‍👧‍👦 **Семья ${target.username}**\n\nПартнёр: <@${partnerId}>\n`;
+        if (familyChildren.length > 0) {
+            text += `\nДети:\n${familyChildren.map(c => `👶 ${c.name}`).join('\n')}`;
+        } else {
+            text += `\nДетей пока нет`;
+        }
+
+        message.reply(text);
+        return;
+    }
+        // ---- !sex (10% шанс на ребёнка, есть кулдаун) ----
+    const RANDOM_NAMES = ['Саша', 'Женя', 'Максим', 'София', 'Артём', 'Вика', 'Дима', 'Настя', 'Игорь', 'Лера', "Арина"];
+
+    if (message.content === '!sex') {
+        const partnerId = marriages[message.author.id];
+
+        if (!partnerId) {
+            message.reply('Нужно быть в браке! `!marry @человек`');
+            return;
+        }
+
+        const familyKey = [message.author.id, partnerId].sort().join('_');
+        const now = Date.now();
+        const COOLDOWN_MS = 5 * 60 * 1000; // 5 минут
+
+        if (!global.lastSexAttempt) global.lastSexAttempt = {};
+        if (global.lastSexAttempt[familyKey] && now - global.lastSexAttempt[familyKey] < COOLDOWN_MS) {
+            const remaining = Math.ceil((COOLDOWN_MS - (now - global.lastSexAttempt[familyKey])) / 1000);
+            message.reply(`⏳ Отдохните немного... подождите ещё ${remaining} сек`);
+            return;
+        }
+
+        global.lastSexAttempt[familyKey] = now;
+
+        const isPregnant = Math.random() < 0.10; // 10% шанс
+
+        if (!isPregnant) {
+            message.reply(`😏 ${message.author} и <@${partnerId}>... ничего не вышло на этот раз.`);
+            return;
+        }
+
+        if (!children[familyKey]) children[familyKey] = [];
+        const name = RANDOM_NAMES[Math.floor(Math.random() * RANDOM_NAMES.length)];
+        children[familyKey].push({ name, born: now });
+        saveLists();
+
+        message.reply(`👶 Сюрприз! У ${message.author} и <@${partnerId}> родил(ся/ась) **${name}**! 🎉`);
         return;
     }
 
@@ -1593,17 +1659,28 @@ startTurnTimer(); // запускаем таймер на самый первы�
         let roundMultiplier = 1;
         let log = '';
 
-        for (let i = 1; i <= BONUS_SPINS_COUNT; i++) {
-           const grid = spinGrid();
-const gridResult = calculateGridWin(grid, bet, roundMultiplier);
+                for (let i = 1; i <= BONUS_SPINS_COUNT; i++) {
+            const roll = Math.random();
+            let grid;
 
-if (gridResult.totalWinnings > 0) {
-    totalWinnings += gridResult.totalWinnings;
-    log += `**Спин ${i}** +${gridResult.totalWinnings} 🪙 (×${roundMultiplier.toFixed(1)})\n`;
-    roundMultiplier += 0.25;
-} else {
-    log += `**Спин ${i}** —\n`;
-}
+            if (roll < 0.25) { // те же шансы, что в обычном !casino
+                let attempt;
+                do {
+                    attempt = spinGrid();
+                } while (calculateGridWin(attempt, bet).totalWinnings > 0);
+                grid = attempt;
+            } else {
+                grid = spinGrid();
+            }
+
+            const { totalWinnings: spinWinnings } = calculateGridWin(grid, bet);
+
+            if (spinWinnings > 0) {
+                totalWinnings += spinWinnings;
+                log += `${i}. +${spinWinnings} 🪙\n`;
+            } else {
+                log += `${i}. —\n`;
+            }
 
             await bonusMsg.edit({
                 embeds: [new EmbedBuilder()
