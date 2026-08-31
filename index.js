@@ -352,7 +352,8 @@ function calculateGridWin(grid, bet, roundMultiplier = 1) {
 const CASINO_SIZE = 5;
 const MIN_CLUSTER = 5;
 const MULTIPLIER_TRAIL = [1, 2, 3, 5, 8, 10, 15, 20, 25];
-const CASCADE_MAX_STEPS = 50;
+const CASCADE_MAX_STEPS = 9; // Предохранитель от зависания и бесконечных каскадов
+
 
 // Таблица выплат в зависимости от размера кластера (от 5, 10, 15 и 25+ символов)
 const CLUSTER_PAYOUTS = {
@@ -383,13 +384,20 @@ function formatSugarGrid(grid) {
 }
 
 function getPayoutMultiplier(symbol, clusterSize) {
+    // ЗАЩИТА: Если символа нет в таблице выплат, берём дефолтную вишенку, чтобы бот не падал
     const tiers = CLUSTER_PAYOUTS[symbol] || CLUSTER_PAYOUTS['🍒'];
+    
+    // Перестраховка: если tiers всё ещё пустой (на случай, если и вишни нет)
+    if (!tiers) return 0.15;
+
     const thresholds = Object.keys(tiers).map(Number).sort((a, b) => b - a);
     for (const threshold of thresholds) {
         if (clusterSize >= threshold) return tiers[threshold];
     }
-    return tiers[5];
+    // Если размер кластера меньше 5, возвращаем самый минимальный коэффициент
+    return tiers || 0.15;
 }
+
 
 function findSugarClusters(grid) {
     const visited = Array.from({ length: CASINO_SIZE }, () => Array(CASINO_SIZE).fill(false));
