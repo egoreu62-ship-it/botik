@@ -374,10 +374,23 @@ function generateSugarSymbol() {
 }
 
 function generateSugarGrid() {
-    return Array.from({ length: CASINO_SIZE }, () => 
-        Array.from({ length: CASINO_SIZE }, () => generateSugarSymbol())
-    );
+    const grid = Array.from({ length: CASINO_SIZE }, () => Array(CASINO_SIZE).fill(null));
+    
+    for (let r = 0; r < CASINO_SIZE; r++) {
+        for (let c = 0; c < CASINO_SIZE; c++) {
+            // С шансом 35% склеиваем символ с левым или верхним соседом, создавая кластеры
+            if (r > 0 && Math.random() < 0.35) {
+                grid[r][c] = grid[r-1][c];
+            } else if (c > 0 && Math.random() < 0.35) {
+                grid[r][c] = grid[r][c-1];
+            } else {
+                grid[r][c] = generateSugarSymbol();
+            }
+        }
+    }
+    return grid;
 }
+
 
 function formatSugarGrid(grid) {
     return grid.map(row => row.join(' | ')).join('\n');
@@ -449,9 +462,14 @@ function collapseAndRefillSugar(grid, toRemove) {
         }
         
         const missing = CASINO_SIZE - remaining.length;
+        
+        // Генерируем один ведущий символ для падающей пачки в этой колонке
+        const streakSymbol = generateSugarSymbol();
+        
         let idx = 0;
         for (let r = 0; r < missing; r++) {
-            newGrid[r][c] = generateSugarSymbol();
+            // С шансом 60% досыпаем одинаковые символы, чтобы каскад продолжался!
+            newGrid[r][c] = Math.random() < 0.60 ? streakSymbol : generateSugarSymbol();
             idx++;
         }
         for (const sym of remaining) {
@@ -461,6 +479,7 @@ function collapseAndRefillSugar(grid, toRemove) {
     }
     return newGrid;
 }
+
 
 
 
