@@ -3432,17 +3432,39 @@ startTurnTimer(); // запускаем таймер на самый первы�
                 const toRemove = Array.from({ length: CASINO_SIZE }, () => Array(CASINO_SIZE).fill(false));
 
                 for (const cluster of clusters) {
-                    const [firstR, firstC] = cluster;
-                    const sym = grid[firstR][firstC];
-                    const size = cluster.length;
+                // ПРОВЕРКА 1: Проверяем, что кластер вообще существует и в нем есть координаты
+                if (!cluster || !cluster[0]) continue;
 
-                    const payoutMult = getPayoutMultiplier(sym, size);
-                    spinWinnings += Math.floor(bet * payoutMult * multiplier);
+                const [firstR, firstC] = cluster;
+                
+                // ПРОВЕРКА 2: Проверяем, что координаты внутри сетки 5х5
+                if (firstR === undefined || firstC === undefined || !grid[firstR]) continue;
 
-                    for (const [cellR, cellC] of cluster) {
+                const sym = grid[firstR][firstC];
+                
+                // ПРОВЕРКА 3: Проверяем, что ячейка не пустая
+                if (!sym) continue; 
+
+                const size = cluster.length;
+
+                // Рассчитываем коэффициент выплат через функцию
+                const payoutMult = getPayoutMultiplier(sym, size);
+                
+                // ПРОВЕРКА 4: Перестраховка от undefined в множителе
+                const currentPayout = typeof payoutMult === 'number' ? payoutMult : 0.50;
+
+                const stepWinnings = Math.floor(bet * currentPayout * multiplier);
+                totalWinnings += stepWinnings;
+
+                log += `Каскад ${cascadeIndex + 1}: ${sym} ×${size} — +${stepWinnings} 🪙 (множитель ×${multiplier})\n`;
+
+                for (const [cellR, cellC] of cluster) {
+                    if (grid[cellR] && grid[cellR][cellC] !== undefined) {
                         toRemove[cellR][cellC] = true;
                     }
                 }
+            }
+
                 grid = collapseAndRefillSugar(grid, toRemove);
                 cascadeIndex++;
             }
