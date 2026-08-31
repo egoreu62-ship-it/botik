@@ -721,11 +721,14 @@ setInterval(async () => {
                 pBody.weight = WEIGHT_DEFAULT;
                 pBody.chest = 10; pBody.arms = 10; pBody.legs = 10; pBody.cardio = 10; pBody.satiety = 100;
                 setBalance(userId, Math.floor(getBalance(userId) / 2)); // Штраф половины фишек за смерть
-                try {
-                    client.users.fetch(userId).then(user => {
-                        message.channel.send(`💀 **Голодная смерть:** <@${userId}> забывал есть, его вес упал ниже критической отметки. Он истощился и умер. Воскрешение с базовыми статами, половина баланса потеряна...`);
+                 try {
+                    client.guilds.fetch(GUILD_ID).then(guild => {
+                        guild.channels.fetch(currentVoiceChannelId).then(channel => {
+                            channel.send(`💀 **Голодная смерть:** <@${userId}> забывал есть, его вес упал ниже критической отметки. Он истощился и умер. Воскрешение с базовыми статами, половина баланса потеряна...`);
+                        }).catch(() => {});
                     }).catch(() => {});
                 } catch(e) {}
+
             }
         }
     }
@@ -1452,8 +1455,9 @@ client.on('messageCreate', async (message) => {
             MARKET_ITEMS.forEach(item => {
                 text += `\`${item.id}\` — ${item.name} — ${item.price} 🪙\n`;
             });
-            return new EmbedBuilder().setColor(0x5865F2).setTitle('🛍️ Маркет еды и вещей').setDescription(`${text}\nКупить: \`!buyitem <предмет> <кол-во>\``);
+            return new EmbedBuilder().setColor(0x5865F2).setTitle('🛍️ Маркет еды и вещей').setDescription(`${text}\nКупить еду: \`!buy <предмет> <кол-во>\``); // <-- ПОПРАВИЛИ ПОДСКАЗКУ
         }
+
 
         function buildCasesEmbed() {
             let text = '';
@@ -3353,7 +3357,8 @@ startTurnTimer(); // запускаем таймер на самый первы�
     }
 
    
-        // ---- !casino bonus <ставка> (10 бесплатных прокруток с накоплением) ----
+        
+        // ---- !casino bonus <ставка> (10 бесплатных прокруток Sugar Rush) ----
     const BONUS_BUY_COST_MULTIPLIER = 20;
     const BONUS_SPINS_COUNT = 10;
 
@@ -3379,41 +3384,53 @@ startTurnTimer(); // запускаем таймер на самый первы�
         const bonusMsg = await message.reply({
             embeds: [new EmbedBuilder()
                 .setColor(0xffaa00)
-                .setTitle('🎰💰 Бонус-раунд начался!')
+                .setTitle('🎰💰 Бонус-раунд Sugar Rush начался!')
                 .setDescription(`Оплачено: ${cost} 🪙\nПрокруток: ${BONUS_SPINS_COUNT}\n\nКрутим...`)]
         });
 
         let totalWinnings = 0;
-        let roundMultiplier = 1;
         let log = '';
 
-                for (let i = 1; i <= BONUS_SPINS_COUNT; i++) {
-            const roll = Math.random();
-            let grid;
+        for (let i = 1; i <= BONUS_SPINS_COUNT; i++) {
+            let grid = generateSugarGrid();
+            let spinWinnings = 0;
+            let cascadeIndex = 0;
 
-            if (roll < 0.25) { // те же шансы, что в обычном !casino
-                let attempt;
-                do {
-                    attempt = spinGrid();
-                } while (calculateGridWin(attempt, bet).totalWinnings > 0);
-                grid = attempt;
-            } else {
-                grid = spinGrid();
+            // Каскадный цикл внутри бонусного спина
+            while (cascadeIndex < CASCADE_MAX_STEPS) {
+                const clusters = findSugarClusters(grid);
+                if (clusters.length === 0) break;
+
+                const multiplier = MULTIPLIER_TRAIL[Math.min(cascadeIndex, MULTIPLIER_TRAIL.length - 1)];
+                const toRemove = Array.from({ length: CASINO_SIZE }, () => Array(CASINO_SIZE).fill(false));
+
+                for (const cluster of clusters) {
+                    const [firstR, firstC] = cluster;
+                    const sym = grid[firstR][firstC];
+                    const size = cluster.length;
+
+                    const payoutMult = getPayoutMultiplier(sym, size);
+                    spinWinnings += Math.floor(bet * payoutMult * multiplier);
+
+                    for (const [cellR, cellC] of cluster) {
+                        toRemove[cellR][cellC] = true;
+                    }
+                }
+                grid = collapseAndRefillSugar(grid, toRemove);
+                cascadeIndex++;
             }
-
-            const { totalWinnings: spinWinnings } = calculateGridWin(grid, bet);
 
             if (spinWinnings > 0) {
                 totalWinnings += spinWinnings;
-                log += `${i}. +${spinWinnings} 🪙\n`;
+                log += `${i}-й спин: +${spinWinnings} 🪙\n`;
             } else {
-                log += `${i}. —\n`;
+                log += `${i}-й спин: —\n`;
             }
 
             await bonusMsg.edit({
                 embeds: [new EmbedBuilder()
                     .setColor(0xffaa00)
-                    .setTitle('🎰💰 Бонус-раунд')
+                    .setTitle('🎰💰 Бонус-раунд Sugar Rush')
                     .setDescription(`${log}\nНакоплено: ${totalWinnings} 🪙`)]
             });
 
@@ -3444,7 +3461,6 @@ startTurnTimer(); // запускаем таймер на самый первы�
         return;
     }
 
-    
     
      
      
