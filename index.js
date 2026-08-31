@@ -350,6 +350,7 @@ function calculateGridWin(grid, bet, roundMultiplier = 1) {
 const CASINO_SIZE = 5;
 const MIN_CLUSTER = 5;
 const MULTIPLIER_TRAIL = [1, 2, 3, 5, 8, 10, 15, 20, 25];
+const CASCADE_MAX_STEPS = 50;
 
 // Таблица выплат в зависимости от размера кластера (от 5, 10, 15 и 25+ символов)
 const CLUSTER_PAYOUTS = {
@@ -3494,7 +3495,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         let log = '';
 
         // Цикл каскадных падений (будет крутиться, пока есть совпадения)
-        while (cascadeIndex < CASCADE_MAX_STEPS) {
+        while (true) {
             const clusters = findSugarClusters(grid);
             if (clusters.length === 0) break;
 
