@@ -1112,10 +1112,11 @@ client.on('messageCreate', async (message) => {
         return;
     }
 
-         // ---- !help (Красивое меню с кнопками) ----
-    // Обновленные тексты для каждой категории в кнопках help
+           // ---- !help (Красивое меню с кнопками) ----
+    if (message.content.startsWith('!help')) {
+        // Обновленные тексты для каждой категории в кнопках help
         const helpPages = {
-            main: '📚 **Центр Помощи Mogster Bot**\n\nДобро пожаловать! Чтобы не забивать чат огромными полотнами текста, мы распределили все команды по кнопкам ниже. Нажми на нужный раздел, чтобы отобразить его команды!',
+            main: '📚 **Центр Помощи Mogster Bot**\n\nДобро пожаловать! Чтобы не забивать чат огромными полотнами текста, я распределил все команды по кнопкам ниже. Нажми на нужный раздел, чтобы отобразить его команды!',
             
             music: '**🎵 Музыкальный плеер**\n\n' +
                    '`!play <название/ссылка>` — включить трек (SoundCloud или YouTube)\n' +
@@ -1135,7 +1136,7 @@ client.on('messageCreate', async (message) => {
                    '`!kubik` — бросить кубик (1-6) | `!коктель <ингредиенты>` — рецепт коктейля\n' +
                    '`!67` — секретная мем-команда\n' +
                    '`!ttt @соперник [ставка]` / `!battleship @соперник` — игры против челиксов\n' +
-                   '`!casino <ставка>` — каскадные слоты 777 (КД: 30 секунд!)\n' +
+                   '`!casino <ставка>` — слоты 777 (КД: 30 секунд!)\n' +
                    '`!casino bonus <ставка>` — бонус-раунд из 10 спинов (без КД)\n' +
                    '`!blackjack <ставка>` / `!duel @соперник <ставка>` — блэкджек / дуэль\n' +
                    '`!case [id]` — список кейсов / открыть кейс (лимит: 15 за 5 мин)\n' +
@@ -1179,64 +1180,57 @@ client.on('messageCreate', async (message) => {
                    '`!test` — послать диагностический сигнал синусоиды в войс'
         };
 
-        // Создаем первый ряд кнопок
-        const row1 = new ActionRowBuilder().addComponents( //
-            new ButtonBuilder().setCustomId('help_main').setLabel('🏠 Главная').setStyle(ButtonStyle.Secondary), //
-            new ButtonBuilder().setCustomId('help_music').setLabel('🎵 Музыка').setStyle(ButtonStyle.Primary), //
-            new ButtonBuilder().setCustomId('help_games').setLabel('🎲 Развлечения').setStyle(ButtonStyle.Primary) //
-        ); //
+        const row1 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('help_main').setLabel('🏠 Главная').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('help_music').setLabel('🎵 Музыка').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('help_games').setLabel('🎲 Развлечения').setStyle(ButtonStyle.Primary)
+        );
 
-        // Создаем второй ряд кнопок
-        const row2 = new ActionRowBuilder().addComponents( //
-            new ButtonBuilder().setCustomId('help_economy').setLabel('💰 Экономика').setStyle(ButtonStyle.Success), //
-            new ButtonBuilder().setCustomId('help_family').setLabel('👨‍👩‍👧 Семья и Жизнь').setStyle(ButtonStyle.Success), //
-            new ButtonBuilder().setCustomId('help_other').setLabel('🔧 Другое').setStyle(ButtonStyle.Danger) //
-        ); //
+        const row2 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('help_economy').setLabel('💰 Экономика').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('help_family').setLabel('👨‍👩‍👧 Семья и Жизнь').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('help_other').setLabel('🔧 Другое').setStyle(ButtonStyle.Danger)
+        );
 
-        // Отправляем стартовое сообщение
         const helpMessage = await message.reply({
             content: helpPages.main,
-            components: [row1, row2] //
+            components: [row1, row2]
         });
 
-        // Создаем коллектор для отслеживания нажатий на кнопки
         const collector = helpMessage.createMessageComponentCollector({
-            componentType: ComponentType.Button, //
-            time: 300000 // Меню будет активно 5 минут после вызова
+            componentType: ComponentType.Button,
+            time: 300000
         });
 
         collector.on('collect', async (interaction) => {
-            // Проверяем, что на кнопку нажал именно тот, кто вызвал !help
             if (interaction.user.id !== message.author.id) {
-                await interaction.reply({ content: '❌ Ты не можешь управлять этим меню! Вызови свое через `!help`.', ephemeral: true }); //
+                await interaction.reply({ content: '❌ Ты не можешь управлять этим меню! Вызови свое через `!help`.', ephemeral: true });
                 return;
             }
 
-            // Определяем, какую страницу показать
-            const pageKey = interaction.customId.replace('help_', ''); //
-            const pageContent = helpPages[pageKey] || helpPages.main; //
+            const pageKey = interaction.customId.replace('help_', '');
+            const pageContent = helpPages[pageKey] || helpPages.main;
 
-            // Обновляем сообщение (Discord сам красиво анимирует переключение текста)
             await interaction.update({
                 content: pageContent,
-                components: [row1, row2] // Кнопки оставляем на месте
+                components: [row1, row2]
             });
         });
 
-        // Когда время вышло, отключаем кнопки, чтобы они стали серыми и неактивными
         collector.on('end', () => {
-            const disabledRow1 = new ActionRowBuilder().addComponents( //
-                ...row1.components.map(b => ButtonBuilder.from(b).setDisabled(true)) //
-            ); //
-            const disabledRow2 = new ActionRowBuilder().addComponents( //
-                ...row2.components.map(b => ButtonBuilder.from(b).setDisabled(true)) //
-            ); //
+            const disabledRow1 = new ActionRowBuilder().addComponents(
+                ...row1.components.map(b => ButtonBuilder.from(b).setDisabled(true))
+            );
+            const disabledRow2 = new ActionRowBuilder().addComponents(
+                ...row2.components.map(b => ButtonBuilder.from(b).setDisabled(true))
+            );
 
-            helpMessage.edit({ components: [disabledRow1, disabledRow2] }).catch(() => {}); //
+            helpMessage.edit({ components: [disabledRow1, disabledRow2] }).catch(() => {});
         });
 
         return;
     }
+
     // ---- !menu (интерактивная панель) ----
     if (message.content === '!menu') {
         function buildMenuRows() {
