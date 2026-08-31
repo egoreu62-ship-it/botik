@@ -345,61 +345,115 @@ function calculateGridWin(grid, bet, roundMultiplier = 1) {
 
     return { totalWinnings, winningRows };
 }
-const CASCADE_MIN_MATCH = 5; // сколько одинаковых символов нужно на всей сетке 3×5, чтобы сработал каскад
-const CASCADE_MAX_STEPS = 10; // предохранитель от бесконечных каскадов
 
-// Сетка теперь по колонкам (5 колонок × 3 символа сверху вниз) — нужно для "падения"
-function spinColumnGrid() {
-    return Array.from({ length: 5 }, () => Array.from({ length: 3 }, () => pickWeightedSymbol()));
+// ==== МАТЕМАТИКА КЛАСТЕРНОГО КАЗИНО (SUGAR RUSH 5x5) ====
+const CASINO_SIZE = 5;
+const MIN_CLUSTER = 5;
+const MULTIPLIER_TRAIL =;
+
+// Таблица выплат в зависимости от размера кластера (от 5, 10, 15 и 25+ символов)
+const CLUSTER_PAYOUTS = {
+    '🍒': { 5: 0.15, 10: 0.40, 15: 0.90, 25: 4.0 },
+    '🍋': { 5: 0.25, 10: 0.60, 15: 1.30, 25: 7.0 },
+    '🔔': { 5: 0.40, 10: 0.90, 15: 2.20, 25: 11.0 },
+    '💎': { 5: 0.70, 10: 1.80, 15: 4.50, 25: 18.0 },
+    '7️⃣': { 5: 1.30, 10: 3.50, 15: 9.00, 25: 45.0 }
+};
+
+function generateSugarSymbol() {
+    const roll = Math.random() * 100;
+    if (roll < 30) return '🍒'; // вес 30
+    if (roll < 55) return '🍋'; // вес 25
+    if (roll < 75) return '🔔'; // вес 20
+    if (roll < 90) return '💎'; // вес 15
+    return '7️⃣';               // вес 10
 }
 
-function formatColumnGrid(colGrid) {
-    const rows = [];
-    for (let r = 0; r < 3; r++) {
-        rows.push(colGrid.map(col => col[r].symbol).join(' | '));
+function generateSugarGrid() {
+    return Array.from({ length: CASINO_SIZE }, () => 
+        Array.from({ length: CASINO_SIZE }, () => generateSugarSymbol())
+    );
+}
+
+function formatSugarGrid(grid) {
+    return grid.map(row => row.join(' | ')).join('\n');
+}
+
+function getPayoutMultiplier(symbol, clusterSize) {
+    const tiers = CLUSTER_PAYOUTS[symbol] || CLUSTER_PAYOUTS['🍒'];
+    const thresholds = Object.keys(tiers).map(Number).sort((a, b) => b - a);
+    for (const threshold of thresholds) {
+        if (clusterSize >= threshold) return tiers[threshold];
     }
-    return rows.join('\n');
+    return tiers[5];
 }
 
-// Находит символ, которого на всей сетке 5+ штук (не важно, где именно)
-function findCascadeMatch(colGrid) {
-    const counts = {};
-    const valueMap = {};
-    colGrid.forEach(col => col.forEach(cell => {
-        counts[cell.symbol] = (counts[cell.symbol] || 0) + 1;
-        valueMap[cell.symbol] = cell.value;
-    }));
+function findSugarClusters(grid) {
+    const visited = Array.from({ length: CASINO_SIZE }, () => Array(CASINO_SIZE).fill(false));
+    const clusters = [];
 
-    let best = null, bestCount = 0;
-    for (const sym in counts) {
-        if (counts[sym] >= CASCADE_MIN_MATCH && counts[sym] > bestCount) {
-            bestCount = counts[sym];
-            best = sym;
+    for (let r = 0; r < CASINO_SIZE; r++) {
+        for (let c = 0; c < CASINO_SIZE; c++) {
+            if (visited[r][c]) continue;
+
+            const sym = grid[r][c];
+            const cluster = [];
+            const queue = [[r, c]];
+            visited[r][c] = true;
+
+            while (queue.length > 0) {
+                const [currR, currC] = queue.shift();
+                cluster.push([currR, currC]);
+
+                const neighbors = [
+                    [currR - 1, currC], [currR + 1, currC],
+                    [currR, currC - 1], [currR, currC + 1]
+                ];
+
+                for (const [nR, nC] of neighbors) {
+                    if (nR < 0 || nR >= CASINO_SIZE || nC < 0 || nC >= CASINO_SIZE) continue;
+                    if (visited[nR][nC]) continue;
+                    if (grid[nR][nC] !== sym) continue;
+
+                    visited[nR][nC] = true;
+                    queue.push([nR, nC]);
+                }
+            }
+
+            if (cluster.length >= MIN_CLUSTER) {
+                clusters.push(cluster);
+            }
         }
     }
-    if (!best) return null;
-    return { symbol: best, count: bestCount, value: valueMap[best] };
+    return clusters;
 }
 
-// Убирает совпавшие символы, остальные "падают" вниз, сверху досыпаются новые
-function cascadeDrop(colGrid, matchedSymbol) {
-    return colGrid.map(col => {
-        const remaining = col.filter(cell => cell.symbol !== matchedSymbol);
-        const removedCount = col.length - remaining.length;
-        const newCells = Array.from({ length: removedCount }, () => pickWeightedSymbol());
-        return [...newCells, ...remaining];
-    });
+function collapseAndRefillSugar(grid, toRemove) {
+    const newGrid = Array.from({ length: CASINO_SIZE }, () => Array(CASINO_SIZE).fill(null));
+
+    for (let c = 0; c < CASINO_SIZE; c++) {
+        const remaining = [];
+        for (let r = 0; r < CASINO_SIZE; r++) {
+            if (!toRemove[r][c]) remaining.push(grid[r][c]);
+        }
+        
+        const missing = CASINO_SIZE - remaining.length;
+        let idx = 0;
+        for (let r = 0; r < missing; r++) {
+            newGrid[r][c] = generateSugarSymbol();
+            idx++;
+        }
+        for (const sym of remaining) {
+            newGrid[idx][c] = sym;
+            idx++;
+        }
+    }
+    return newGrid;
 }
 
-// Проверяет, есть ли ХОТЬ ОДИН возможный каскад на сетке (для принудительного проигрыша)
-function hasAnyCascade(colGrid) {
-    return findCascadeMatch(colGrid) !== null;
-}
 
 
-function formatGrid(grid) {
-    return grid.map(row => row.map(s => s.symbol).join(' | ')).join('\n');
-}
+
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -3381,10 +3435,11 @@ startTurnTimer(); // запускаем таймер на самый первы�
 
     
     
-        // ---- !casino <ставка> ----
+     
+       // ---- !casino <ставка> (Обновленный Sugar Rush 5x5) ----
     if (message.content.startsWith('!casino')) {
-        
-    
+        // Пропускаем bonus, так как это отдельная команда бонус-бая
+        if (message.content.startsWith('!casino bonus')) return; 
 
         const args = message.content.split(' ');
         const bet = parseInt(args[1]);
@@ -3401,123 +3456,127 @@ startTurnTimer(); // запускаем таймер на самый первы�
         }
 
         let dynamicMaxBet = Math.floor(500 + (balance * 0.10));
-       
         if (bet > dynamicMaxBet) {
             message.reply(`❌ Твой лимит ставки сейчас — не больше ${dynamicMaxBet} 🪙! (Лимит растёт вместе с балансом)`);
             return;
         }
-        // Кулдаун проверяем ТОЛЬКО если это не бонус-бай
-        if (!message.content.startsWith('!casino bonus')) {
-            const userId = message.author.id;
-            const now = Date.now();
-            const CASINO_CD_MS = 30 * 1000; // 30 sec 
 
-            if (casinoCooldowns.has(userId)) {
-                const expirationTime = casinoCooldowns.get(userId) + CASINO_CD_MS;
-                if (now < expirationTime) {
-                    const timeLeft = Math.ceil((expirationTime - now) / 1000);
-                    message.reply(`⏳ Крутить казик можно раз в минуту! Подожди ещё **${timeLeft} сек.**`);
-                    return;
-                }
+        // Проверка кулдауна (30 секунд)
+        const userId = message.author.id;
+        const now = Date.now();
+        const CASINO_CD_MS = 30 * 1000; 
+
+        if (casinoCooldowns.has(userId)) {
+            const expirationTime = casinoCooldowns.get(userId) + CASINO_CD_MS;
+            if (now < expirationTime) {
+                const timeLeft = Math.ceil((expirationTime - now) / 1000);
+                message.reply(`⏳ Крутить казик можно раз в 30 секунд! Подожди ещё **${timeLeft} сек.**`);
+                return;
             }
-            // Все проверки пройдены, вешаем кулдаун на обычную игру
-            casinoCooldowns.set(userId, now);
         }
+        // Запускаем кулдаун
+        casinoCooldowns.set(userId, now);
 
-        // Дальше идёт твой неизменённый код генерации сетки (const houseEdgeRoll = Math.random(); и т.д.)
-
-
-      
-        const houseEdgeRoll = Math.random();
-        let colGrid;
-
-        if (houseEdgeRoll < 0.35) {
-            // Принудительный проигрыш — генерируем сетку без единого возможного каскада
-            do {
-                colGrid = spinColumnGrid();
-            } while (hasAnyCascade(colGrid));
-        } else {
-            colGrid = spinColumnGrid();
-        }
+        // Старт игры: генерируем начальную сетку 5x5
+        let grid = generateSugarGrid();
 
         const spinMsg = await message.reply({
             embeds: [new EmbedBuilder()
                 .setColor(0x5865F2)
-                .setTitle('🍬 Казино — каскад')
-                .setDescription(formatColumnGrid(colGrid) + '\n\nПроверяем совпадения...')]
+                .setTitle('🎰 Sugar Rush Слоты — 5x5')
+                .setDescription(formatSugarGrid(grid) + '\n\nПроверяем кластеры...')]
         });
 
         await sleep(1000);
 
         let totalWinnings = 0;
-        let cascadeMultiplier = 1;
-        let cascadeCount = 0;
+        let cascadeIndex = 0;
         let log = '';
 
-        let match = findCascadeMatch(colGrid);
+        // Цикл каскадных падений (будет крутиться, пока есть совпадения)
+        while (cascadeIndex < CASCADE_MAX_STEPS) {
+            const clusters = findSugarClusters(grid);
+            if (clusters.length === 0) break;
 
-        while (match && cascadeCount < CASCADE_MAX_STEPS) {
-            cascadeCount++;
-            const stepWinnings = Math.floor(bet * match.value * 0.2 * cascadeMultiplier);
-            totalWinnings += stepWinnings;
-            log += `Каскад ${cascadeCount}: ${match.symbol} ×${match.count} — +${stepWinnings} 🪙 (множитель ×${cascadeMultiplier})\n`;
+            // Берем нарастающий множитель за текущий шаг каскада
+            const multiplier = MULTIPLIER_TRAIL[Math.min(cascadeIndex, MULTIPLIER_TRAIL.length - 1)];
+            const toRemove = Array.from({ length: CASINO_SIZE }, () => Array(CASINO_SIZE).fill(false));
 
-            colGrid = cascadeDrop(colGrid, match.symbol);
-            cascadeMultiplier += 0.2;
+            for (const cluster of clusters) {
+                const [firstR, firstC] = cluster[0];
+                const sym = grid[firstR][firstC];
+                const size = cluster.length;
+
+                // Считаем коэффициент из Java-таблицы выплат
+                const payoutMult = getPayoutMultiplier(sym, size);
+                const win = Math.round(bet * payoutMult * multiplier);
+                totalWinnings += win;
+
+                log += `✨ Кластер ${sym} ×${size} (Каскад ×${multiplier}) ➔ +${win} 🪙\n`;
+
+                // Помечаем клетки кластера для удаления
+                for (const [cellR, cellC] of cluster) {
+                    toRemove[cellR][cellC] = true;
+                }
+            }
+
+            // Обновляем сетку: удаляем выигравшие символы и засыпаем новые сверху
+            grid = collapseAndRefillSugar(grid, toRemove);
+            cascadeIndex++;
 
             await spinMsg.edit({
                 embeds: [new EmbedBuilder()
                     .setColor(0xffaa00)
-                    .setTitle('🍬 Казино — каскад')
-                    .setDescription(formatColumnGrid(colGrid) + `\n\n${log}\nНакоплено: ${totalWinnings} 🪙`)]
+                    .setTitle('🎰 Sugar Rush Слоты — Каскад!')
+                    .setDescription(formatSugarGrid(grid) + `\n\n${log}\nНакоплено: ${totalWinnings} 🪙`)]
             });
 
             await sleep(1200);
-            match = findCascadeMatch(colGrid);
         }
-                const MAX_TOTAL_MULTIPLIER = 15; // максимум ×15 от ставки за весь раунд, независимо от каскадов
+
+        // Потолок максимального выигрыша (оставляем твой х15 лимит)
+        const MAX_TOTAL_MULTIPLIER = 15;
         if (totalWinnings > bet * MAX_TOTAL_MULTIPLIER) {
             totalWinnings = bet * MAX_TOTAL_MULTIPLIER;
         }
 
-               // Вычисляем чистый итог раунда (весь улов минус ставка)
+        // Экономика раунда: чистый итог (улов минус ставка)
         const netChange = totalWinnings - bet; 
-        // Обновляем баланс: списываем ставку и прибавляем улов
         setBalance(message.author.id, balance + netChange);
 
-        // Чистая победа засчитывается, только если улов перебил ставку и вывел в плюс
+        // Статистика профиля
         const isNetWin = totalWinnings > bet; 
         const casinoStats = getStats(message.author.id);
         if (isNetWin) casinoStats.casinoWins++; else casinoStats.casinoLosses++;
         saveLists();
         checkAchievements(message.author.id, message);
 
-        // Формируем честный текст с математикой раунда
+        // Текст финального отчета
         let resultText = log ? `${log}\n` : '';
         if (totalWinnings === 0) {
             resultText += `😔 Совпадений не было. Проигрыш: **${bet}** 🪙`;
         } else if (netChange < 0) {
-            resultText += `📉 **Частичный возврат:** Собрано каскадов на ${totalWinnings} 🪙, но раунд ушёл в убыток на **${Math.abs(netChange)}** 🪙`;
+            resultText += `📉 **Убыточный каскад:** Собрано кластеров на ${totalWinnings} 🪙, но раунд ушёл в минус на **${Math.abs(netChange)}** 🪙`;
         } else if (netChange === 0) {
-            resultText += `🤝 **В ноль:** Собрано каскадов ровно на сумму твоей ставки (${totalWinnings} 🪙). Ничего не потеряно.`;
+            resultText += `🤝 **В ноль:** Собрано кластеров ровно на сумму твоей ставки (${totalWinnings} 🪙). Ничего не потеряно.`;
         } else {
-            resultText += `🎉 **Чистый плюс!** Собрано на ${totalWinnings} 🪙 (Чистая прибыль: **+${netChange}** 🪙)`;
+            resultText += `🎉 **Чистый профит!** Собрано на ${totalWinnings} 🪙 (Чистая прибыль: **+${netChange}** 🪙)`;
         }
 
-        // Радостная гифка выпадет только если игрок ушёл в реальный плюс
         const gif = isNetWin
             ? WIN_GIFS[Math.floor(Math.random() * WIN_GIFS.length)]
             : LOSE_GIFS[Math.floor(Math.random() * LOSE_GIFS.length)];
 
         await spinMsg.edit({
             embeds: [new EmbedBuilder()
-                .setColor(isNetWin ? 0x00ff00 : totalWinnings > 0 ? 0xffaa00 : 0xff0000) // Зеленый — плюс, Оранжевый — частичный возврат, Красный — полный ноль
-                .setTitle('🍬 Казино — каскад')
-                .setDescription(`${formatColumnGrid(colGrid)}\n\n${resultText}\n\nБаланс: ${getBalance(message.author.id)} 🪙`)
+                .setColor(isNetWin ? 0x00ff00 : totalWinnings > 0 ? 0xffaa00 : 0xff0000)
+                .setTitle('🎰 Sugar Rush Слоты — Результат')
+                .setDescription(`${formatSugarGrid(grid)}\n\n${resultText}\n\nБаланс: ${getBalance(message.author.id)} 🪙`)
                 .setImage(gif)]
         });
         return;
-        }
+    }
+
 
        
 
