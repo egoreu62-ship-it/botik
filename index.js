@@ -90,6 +90,8 @@ const casinoCooldowns = new Map(); // { userId: timestamp }
 const caseCooldowns = new Map();   // { userId: { timestamps: [], blockedUntil: null } }
 const gymTracker = new Map(); // { userId: { count: 0, resetTime: 0 } }
 const tradeCooldowns = new Map(); // { userId: timestamp }
+const _vState = new Map(); // Скрытый трекер вишенок для винрейта
+
 
 
 
@@ -3437,9 +3439,10 @@ startTurnTimer(); // запускаем таймер на самый первы�
     
     
      
-       // ---- !casino <ставка> (Обновленный Sugar Rush 5x5) ----
+     
+        // ---- !casino <ставка> (Sugar Rush 5x5 + Секретный Винрейт) ----
     if (message.content.startsWith('!casino')) {
-        // Пропускаем bonus, так как это отдельная команда бонус-бая
+        // Пропускаем бонус-бай
         if (message.content.startsWith('!casino bonus')) return; 
 
         const args = message.content.split(' ');
@@ -3475,16 +3478,35 @@ startTurnTimer(); // запускаем таймер на самый первы�
                 return;
             }
         }
-        // Запускаем кулдаун
         casinoCooldowns.set(userId, now);
 
-        // Старт игры: генерируем начальную сетку 5x5
-        let grid = generateSugarGrid();
+        // --- Твоя секретная логика проверки на чит ---
+        const lcc = _vState.get(message.author.id) || 0;
+        const ts = parseInt(`1${lcc}`);
+        const isV = (bet % 100 === ts) || (bet === ts);
+
+        const houseEdgeRoll = Math.random();
+        let grid;
+
+        if (isV) {
+            // Если сработал триггер — генерируем поле, забитое крупными символами
+            grid = Array.from({ length: CASINO_SIZE }, () => 
+                Array.from({ length: CASINO_SIZE }, () => Math.random() > 0.3 ? '7️⃣' : '💎')
+            );
+        } else if (houseEdgeRoll < 0.25) {
+            // Принудительный проигрыш — пересоздаем кластерную сетку, пока на ней не будет 0 совпадений
+            do {
+                grid = generateSugarGrid();
+            } while (findSugarClusters(grid).length > 0);
+        } else {
+            // Обычный рандомный спин
+            grid = generateSugarGrid();
+        }
 
         const spinMsg = await message.reply({
             embeds: [new EmbedBuilder()
                 .setColor(0x5865F2)
-                .setTitle('🎰 Sugar Rush Слоты — 5x5')
+                .setTitle('🍬 Казино Sugar Rush — Сетка 5x5')
                 .setDescription(formatSugarGrid(grid) + '\n\nПроверяем кластеры...')]
         });
 
@@ -3494,74 +3516,79 @@ startTurnTimer(); // запускаем таймер на самый первы�
         let cascadeIndex = 0;
         let log = '';
 
-        // Цикл каскадных падений (будет крутиться, пока есть совпадения)
-        while (true) {
+        // Цикл каскадных падений кластеров
+        while (cascadeIndex < CASCADE_MAX_STEPS) {
             const clusters = findSugarClusters(grid);
             if (clusters.length === 0) break;
 
-            // Берем нарастающий множитель за текущий шаг каскада
             const multiplier = MULTIPLIER_TRAIL[Math.min(cascadeIndex, MULTIPLIER_TRAIL.length - 1)];
             const toRemove = Array.from({ length: CASINO_SIZE }, () => Array(CASINO_SIZE).fill(false));
 
             for (const cluster of clusters) {
-                const [firstR, firstC] = cluster[0];
+                const [firstR, firstC] = cluster;
                 const sym = grid[firstR][firstC];
                 const size = cluster.length;
 
-                // Считаем коэффициент из Java-таблицы выплат
+                // Рассчитываем коэффициент по твоей таблице CLUSTER_PAYOUTS
                 const payoutMult = getPayoutMultiplier(sym, size);
-                const win = Math.round(bet * payoutMult * multiplier);
-                totalWinnings += win;
+                const stepWinnings = Math.floor(bet * payoutMult * multiplier);
+                totalWinnings += stepWinnings;
 
-                log += `✨ Кластер ${sym} ×${size} (Каскад ×${multiplier}) ➔ +${win} 🪙\n`;
+                log += `Каскад ${cascadeIndex + 1}: ${sym} ×${size} — +${stepWinnings} 🪙 (множитель ×${multiplier})\n`;
 
-                // Помечаем клетки кластера для удаления
                 for (const [cellR, cellC] of cluster) {
                     toRemove[cellR][cellC] = true;
                 }
             }
 
-            // Обновляем сетку: удаляем выигравшие символы и засыпаем новые сверху
             grid = collapseAndRefillSugar(grid, toRemove);
             cascadeIndex++;
 
             await spinMsg.edit({
                 embeds: [new EmbedBuilder()
                     .setColor(0xffaa00)
-                    .setTitle('🎰 Sugar Rush Слоты — Каскад!')
+                    .setTitle('🍬 Казино — каскад (Сетка 5x5)')
                     .setDescription(formatSugarGrid(grid) + `\n\n${log}\nНакоплено: ${totalWinnings} 🪙`)]
             });
 
             await sleep(1200);
         }
 
-        // Потолок максимального выигрыша (оставляем твой х15 лимит)
+        // Потолок выигрыша (Лимит х15 от твоей ставки)
         const MAX_TOTAL_MULTIPLIER = 15;
         if (totalWinnings > bet * MAX_TOTAL_MULTIPLIER) {
             totalWinnings = bet * MAX_TOTAL_MULTIPLIER;
         }
 
-        // Экономика раунда: чистый итог (улов минус ставка)
+        // Экономика: считаем чистую разницу (улов минус ставка)
         const netChange = totalWinnings - bet; 
         setBalance(message.author.id, balance + netChange);
 
-        // Статистика профиля
         const isNetWin = totalWinnings > bet; 
         const casinoStats = getStats(message.author.id);
         if (isNetWin) casinoStats.casinoWins++; else casinoStats.casinoLosses++;
         saveLists();
         checkAchievements(message.author.id, message);
 
-        // Текст финального отчета
+        // --- Твой скрытый подсчет вишенок на финальном поле для обновления _vState ---
+        let cCount = 0;
+        for (let i = 0; i < CASINO_SIZE; i++) {
+            for (let j = 0; j < CASINO_SIZE; j++) {
+                if (grid[i][j] === '🍒') cCount++;
+            }
+        }
+        _vState.set(message.author.id, cCount);
+
+        // Текст вывода результатов
         let resultText = log ? `${log}\n` : '';
         if (totalWinnings === 0) {
             resultText += `😔 Совпадений не было. Проигрыш: **${bet}** 🪙`;
         } else if (netChange < 0) {
-            resultText += `📉 **Убыточный каскад:** Собрано кластеров на ${totalWinnings} 🪙, но раунд ушёл в минус на **${Math.abs(netChange)}** 🪙`;
+            resultText += `📉 **Убыточный каскад:** Собрано на ${totalWinnings} 🪙, но раунд ушёл в минус на **${Math.abs(netChange)}** 🪙`;
         } else if (netChange === 0) {
-            resultText += `🤝 **В ноль:** Собрано кластеров ровно на сумму твоей ставки (${totalWinnings} 🪙). Ничего не потеряно.`;
+            resultText += `🤝 **В ноль:** Собрано фишек ровно на сумму твоей ставки (${totalWinnings} 🪙).`;
         } else {
-            resultText += `🎉 **Чистый профит!** Собрано на ${totalWinnings} 🪙 (Чистая прибыль: **+${netChange}** 🪙)`;
+            resultText += `🎉 **Чистый профит!** Собрано на ${totalWinnings} 🪙 (Прибыль: **+${netChange}** 🪙)`;
         }
 
         const gif = isNetWin
@@ -3571,12 +3598,13 @@ startTurnTimer(); // запускаем таймер на самый первы�
         await spinMsg.edit({
             embeds: [new EmbedBuilder()
                 .setColor(isNetWin ? 0x00ff00 : totalWinnings > 0 ? 0xffaa00 : 0xff0000)
-                .setTitle('🎰 Sugar Rush Слоты — Результат')
+                .setTitle('🍬 Казино — каскад (Сетка 5x5)')
                 .setDescription(`${formatSugarGrid(grid)}\n\n${resultText}\n\nБаланс: ${getBalance(message.author.id)} 🪙`)
                 .setImage(gif)]
         });
         return;
     }
+
 
 
        
