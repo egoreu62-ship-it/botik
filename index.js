@@ -3442,7 +3442,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
                 // ПРОВЕРКА 1: Проверяем, что кластер вообще существует и в нем есть координаты
                 if (!cluster || !cluster[0]) continue;
 
-                const [firstR, firstC] = cluster;
+                const [firstR, firstC] = cluster[0];
                 
                 // ПРОВЕРКА 2: Проверяем, что координаты внутри сетки 5х5
                 if (firstR === undefined || firstC === undefined || !grid[firstR]) continue;
