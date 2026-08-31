@@ -349,7 +349,7 @@ function calculateGridWin(grid, bet, roundMultiplier = 1) {
 // ==== МАТЕМАТИКА КЛАСТЕРНОГО КАЗИНО (SUGAR RUSH 5x5) ====
 const CASINO_SIZE = 5;
 const MIN_CLUSTER = 5;
-const MULTIPLIER_TRAIL =;
+const MULTIPLIER_TRAIL = [1, 2, 3, 5, 8, 10, 15, 20, 25];
 
 // Таблица выплат в зависимости от размера кластера (от 5, 10, 15 и 25+ символов)
 const CLUSTER_PAYOUTS = {
