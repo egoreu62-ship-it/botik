@@ -90,7 +90,7 @@ const casinoCooldowns = new Map(); // { userId: timestamp }
 const caseCooldowns = new Map();   // { userId: { timestamps: [], blockedUntil: null } }
 const gymTracker = new Map(); // { userId: { count: 0, resetTime: 0 } }
 const tradeCooldowns = new Map(); // { userId: timestamp }
-const _vState = new Map(); // Скрытый трекер вишенок для винрейта
+
 
 
 
@@ -351,17 +351,17 @@ function calculateGridWin(grid, bet, roundMultiplier = 1) {
 // ==== МАТЕМАТИКА КЛАСТЕРНОГО КАЗИНО (SUGAR RUSH 5x5) ====
 const CASINO_SIZE = 5;
 const MIN_CLUSTER = 5;
-const MULTIPLIER_TRAIL = [1, 2, 3, 5, 8, 10, 15, 20, 25];
+const MULTIPLIER_TRAIL = [1, 1.5, 2, 3, 4, 5, 6, 8];
 const CASCADE_MAX_STEPS = 9; // Предохранитель от зависания и бесконечных каскадов
 
 
 // Таблица выплат в зависимости от размера кластера (от 5, 10, 15 и 25+ символов)
 const CLUSTER_PAYOUTS = {
-    '🍒': { 5: 0.15, 10: 0.40, 15: 0.90, 25: 4.0 },
-    '🍋': { 5: 0.25, 10: 0.60, 15: 1.30, 25: 7.0 },
-    '🔔': { 5: 0.40, 10: 0.90, 15: 2.20, 25: 11.0 },
-    '💎': { 5: 0.70, 10: 1.80, 15: 4.50, 25: 18.0 },
-    '7️⃣': { 5: 1.30, 10: 3.50, 15: 9.00, 25: 45.0 }
+    '🍒': { 5: 0.03, 10: 0.08, 15: 0.18, 25: 0.7 },
+    '🍋': { 5: 0.05, 10: 0.12, 15: 0.26, 25: 1.2 },
+    '🔔': { 5: 0.08, 10: 0.18, 15: 0.44, 25: 2.0 },
+    '💎': { 5: 0.14, 10: 0.36, 15: 0.9, 25: 3.2 },
+    '7️⃣': { 5: 0.26, 10: 0.7, 15: 1.8, 25: 8.0 }
 };
 
 function generateSugarSymbol() {
@@ -379,9 +379,9 @@ function generateSugarGrid() {
     for (let r = 0; r < CASINO_SIZE; r++) {
         for (let c = 0; c < CASINO_SIZE; c++) {
             // С шансом 35% склеиваем символ с левым или верхним соседом, создавая кластеры
-            if (r > 0 && Math.random() < 0.35) {
+            if (r > 0 && Math.random() < 0.12) {
                 grid[r][c] = grid[r-1][c];
-            } else if (c > 0 && Math.random() < 0.35) {
+            } else if (c > 0 && Math.random() < 0.12) {
                 grid[r][c] = grid[r][c-1];
             } else {
                 grid[r][c] = generateSugarSymbol();
@@ -2485,19 +2485,7 @@ client.on('messageCreate', async (message) => {
         return;
     }
 
-    // ---- !abort ----
-    if (message.content === '!abort') {
-        if (!pregnancies[message.author.id]) {
-            message.reply('Ты не беременна(ен) 🤷');
-            return;
-        }
-
-        delete pregnancies[message.author.id];
-        saveLists();
-
-        message.reply('💔 Беременность прервана.');
-        return;
-    }
+    
 
 
     
@@ -3425,8 +3413,15 @@ startTurnTimer(); // запускаем таймер на самый первы�
         let totalWinnings = 0;
         let log = '';
 
-        for (let i = 1; i <= BONUS_SPINS_COUNT; i++) {
-            let grid = generateSugarGrid();
+            for (let i = 1; i <= BONUS_SPINS_COUNT; i++) {
+            let grid;
+            if (Math.random() < 0.25) {
+                do {
+                    grid = generateSugarGrid();
+                } while (findSugarClusters(grid).length > 0);
+            } else {
+                grid = generateSugarGrid();
+            }
             let spinWinnings = 0;
             let cascadeIndex = 0;
 
@@ -3569,12 +3564,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         const houseEdgeRoll = Math.random();
         let grid;
 
-        if (isV) {
-            // Если сработал чит-триггер — генерируем поле, забитое Семёрками и Бриллиантами
-            grid = Array.from({ length: CASINO_SIZE }, () => 
-                Array.from({ length: CASINO_SIZE }, () => Math.random() > 0.3 ? '7️⃣' : '💎')
-            );
-        } else if (houseEdgeRoll < 0.25) {
+                if (houseEdgeRoll < 0.25) {
             // Принудительный проигрыш — пересоздаем сетку, пока на ней не будет 0 совпадений
             do {
                 grid = generateSugarGrid();
@@ -3636,7 +3626,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         }
 
         // Потолок выигрыша за спин
-        const MAX_TOTAL_MULTIPLIER = 150;
+        const MAX_TOTAL_MULTIPLIER = 20;
         if (totalWinnings > bet * MAX_TOTAL_MULTIPLIER) {
             totalWinnings = bet * MAX_TOTAL_MULTIPLIER;
         }
@@ -3651,14 +3641,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         saveLists();
         checkAchievements(message.author.id, message);
 
-        // Обновляем скрытый трекер вишенок для работы винрейт-чита
-        let cCount = 0;
-        for (let i = 0; i < CASINO_SIZE; i++) {
-            for (let j = 0; j < CASINO_SIZE; j++) {
-                if (grid[i][j] === '🍒') cCount++;
-            }
-        }
-        _vState.set(message.author.id, cCount);
+        
 
         // Текст результатов
         let resultText = log ? `${log}\n` : '';
@@ -3805,7 +3788,7 @@ if (message.content.startsWith('!promo')) {
         MARKET_ITEMS.forEach(item => {
             text += `\`${item.id}\` — ${item.name} — ${item.price} 🪙\n`;
         });
-        text += '\nКупить: `!buy <предмет> <количество>`';
+        text += '\nКупить: `!buyitem <предмет> <количество>`';
         message.reply(text);
         return;
     }
