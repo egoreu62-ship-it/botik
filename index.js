@@ -342,8 +342,8 @@ function calculateGridWin(grid, bet, roundMultiplier = 1) {
 
     return { totalWinnings, winningRows };
 }
-const CASCADE_MIN_MATCH = 6; // сколько одинаковых символов нужно на всей сетке 3×5, чтобы сработал каскад
-const CASCADE_MAX_STEPS = 6; // предохранитель от бесконечных каскадов
+const CASCADE_MIN_MATCH = 5; // сколько одинаковых символов нужно на всей сетке 3×5, чтобы сработал каскад
+const CASCADE_MAX_STEPS = 10; // предохранитель от бесконечных каскадов
 
 // Сетка теперь по колонкам (5 колонок × 3 символа сверху вниз) — нужно для "падения"
 function spinColumnGrid() {
