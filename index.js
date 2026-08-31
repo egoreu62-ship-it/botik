@@ -3442,7 +3442,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
                 // ПРОВЕРКА 1: Проверяем, что кластер вообще существует и в нем есть координаты
                 if (!cluster || !cluster[0]) continue;
 
-                const [firstR, firstC] = cluster[0];
+                const [firstR, firstC] = cluster;
                 
                 // ПРОВЕРКА 2: Проверяем, что координаты внутри сетки 5х5
                 if (firstR === undefined || firstC === undefined || !grid[firstR]) continue;
@@ -3606,7 +3606,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
             const toRemove = Array.from({ length: CASINO_SIZE }, () => Array(CASINO_SIZE).fill(false));
 
             for (const cluster of clusters) {
-                const [firstR, firstC] = cluster;
+                const [firstR, firstC] = cluster[0];
                 const sym = grid[firstR][firstC];
                 const size = cluster.length;
 
