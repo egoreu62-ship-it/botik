@@ -3556,11 +3556,6 @@ startTurnTimer(); // запускаем таймер на самый первы�
         }
         casinoCooldowns.set(userId, now);
 
-        // --- Секретная логика проверки на чит ---
-        const lcc = _vState.get(message.author.id) || 0;
-        const ts = parseInt(`1${lcc}`);
-        const isV = (bet % 100 === ts) || (bet === ts);
-
         const houseEdgeRoll = Math.random();
         let grid;
 
