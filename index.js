@@ -397,10 +397,31 @@ function formatSugarGrid(grid) {
 }
 
 function getPayoutMultiplier(symbol, clusterSize) {
-    // ЖЕСТКАЯ ЗАЩИТА: Если символ пустой, undefined, или его нет в таблице выплат — берем вишню
-    if (!symbol || !CLUSTER_PAYOUTS[symbol]) {
-        symbol = '🍒';
+    // 1. Принудительно превращаем в строку, если прилетел объект
+    let symStr = String(symbol).trim(); 
+    
+    // 2. Список разрешенных символов в таблице
+    const allowed = ['🍒', '🍋', '🔔', '💎', '7️⃣'];
+    
+    // 3. Если символ не входит в список или пустой — жестко ставим вишню
+    if (!allowed.includes(symStr)) {
+        symStr = '🍒';
     }
+
+    const tiers = CLUSTER_PAYOUTS[symStr];
+    
+    // 4. Если по какой-то причине tiers всё еще пустой — отдаем дефолт х0.5
+    if (!tiers) return 0.50;
+
+    const thresholds = Object.keys(tiers).map(Number).sort((a, b) => b - a);
+    for (const threshold of thresholds) {
+        if (clusterSize >= threshold) return tiers[threshold];
+    }
+    
+    const minKey = Math.min(...thresholds);
+    return tiers[minKey] || 0.50;
+}
+
     
     const tiers = CLUSTER_PAYOUTS[symbol];
     
@@ -427,11 +448,11 @@ function findSugarClusters(grid) {
         for (let c = 0; c < CASINO_SIZE; c++) {
             if (visited[r][c]) continue;
 
-            const sym = grid[r][c];
-            if (!sym) continue; // Пропускаем пустые клетки, если каскад отработал некорректно
-            const cluster = [];
-            const queue = [[r, c]];
-            visited[r][c] = true;
+              const sym = grid && grid[firstR] ? String(grid[firstR][firstC]) : '🍒';
+              if (!sym || sym === 'undefined' || sym === 'null') continue;
+              const cluster = [];
+              const queue = [[r, c]];
+               visited[r][c] = true;
 
             while (queue.length > 0) {
                 const [currR, currC] = queue.shift();
