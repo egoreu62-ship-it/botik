@@ -422,20 +422,7 @@ function getPayoutMultiplier(symbol, clusterSize) {
 
 
     
-    const tiers = CLUSTER_PAYOUTS[symbol];
     
-    // Перестраховка: если tiers почему-то не определился
-    if (!tiers) return 0.50;
-
-    const thresholds = Object.keys(tiers).map(Number).sort((a, b) => b - a);
-    for (const threshold of thresholds) {
-        if (clusterSize >= threshold) return tiers[threshold];
-    }
-    
-    // Если размер кластера меньше минимального, отдаем базовую выплату за 5 штук
-    const minKey = Math.min(...thresholds);
-    return tiers[minKey] || 0.50;
-
 
 
 
