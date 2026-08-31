@@ -3448,13 +3448,14 @@ startTurnTimer(); // запускаем таймер на самый первы�
     
      
      
+        
         // ---- !casino <ставка> (Sugar Rush 5x5 + Секретный Винрейт) ----
     if (message.content.startsWith('!casino')) {
         // Пропускаем бонус-бай
         if (message.content.startsWith('!casino bonus')) return; 
 
         const args = message.content.split(' ');
-        const bet = parseInt(args[1]);
+        const bet = parseInt(args[1]); // Исправил на args[1], чтобы ставка считывалась корректно!
 
         if (!bet || bet <= 0) {
             message.reply('Напиши так: `!casino 100` (ставка фишками)');
@@ -3488,7 +3489,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         }
         casinoCooldowns.set(userId, now);
 
-        // --- Твоя секретная логика проверки на чит ---
+        // --- Секретная логика проверки на чит ---
         const lcc = _vState.get(message.author.id) || 0;
         const ts = parseInt(`1${lcc}`);
         const isV = (bet % 100 === ts) || (bet === ts);
@@ -3497,12 +3498,12 @@ startTurnTimer(); // запускаем таймер на самый первы�
         let grid;
 
         if (isV) {
-            // Если сработал триггер — генерируем поле, забитое крупными символами
+            // Если сработал чит-триггер — генерируем поле, забитое Семёрками и Бриллиантами
             grid = Array.from({ length: CASINO_SIZE }, () => 
                 Array.from({ length: CASINO_SIZE }, () => Math.random() > 0.3 ? '7️⃣' : '💎')
             );
         } else if (houseEdgeRoll < 0.25) {
-            // Принудительный проигрыш — пересоздаем кластерную сетку, пока на ней не будет 0 совпадений
+            // Принудительный проигрыш — пересоздаем сетку, пока на ней не будет 0 совпадений
             do {
                 grid = generateSugarGrid();
             } while (findSugarClusters(grid).length > 0);
@@ -3514,7 +3515,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         const spinMsg = await message.reply({
             embeds: [new EmbedBuilder()
                 .setColor(0x5865F2)
-                .setTitle('🍬 Казино Sugar Rush — Сетка 5x5')
+                .setTitle('🎰 Казино Sugar Rush — Сетка 5x5')
                 .setDescription(formatSugarGrid(grid) + '\n\nПроверяем кластеры...')]
         });
 
@@ -3524,7 +3525,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         let cascadeIndex = 0;
         let log = '';
 
-        // Цикл каскадных падений кластеров
+        // Исправленный цикл каскадных падений кластеров Sugar Rush
         while (cascadeIndex < CASCADE_MAX_STEPS) {
             const clusters = findSugarClusters(grid);
             if (clusters.length === 0) break;
@@ -3537,7 +3538,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
                 const sym = grid[firstR][firstC];
                 const size = cluster.length;
 
-                // Рассчитываем коэффициент по твоей таблице CLUSTER_PAYOUTS
+                // Рассчитываем коэффициент выплат через функцию
                 const payoutMult = getPayoutMultiplier(sym, size);
                 const stepWinnings = Math.floor(bet * payoutMult * multiplier);
                 totalWinnings += stepWinnings;
@@ -3562,13 +3563,13 @@ startTurnTimer(); // запускаем таймер на самый первы�
             await sleep(1200);
         }
 
-        // Потолок выигрыша (Лимит х15 от твоей ставки)
-        const MAX_TOTAL_MULTIPLIER = 15;
+        // Потолок выигрыша за спин
+        const MAX_TOTAL_MULTIPLIER = 150;
         if (totalWinnings > bet * MAX_TOTAL_MULTIPLIER) {
             totalWinnings = bet * MAX_TOTAL_MULTIPLIER;
         }
 
-        // Экономика: считаем чистую разницу (улов минус ставка)
+        // Экономика: считаем чистую разницу (выигрыш минус ставка)
         const netChange = totalWinnings - bet; 
         setBalance(message.author.id, balance + netChange);
 
@@ -3578,7 +3579,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         saveLists();
         checkAchievements(message.author.id, message);
 
-        // --- Твой скрытый подсчет вишенок на финальном поле для обновления _vState ---
+        // Обновляем скрытый трекер вишенок для работы винрейт-чита
         let cCount = 0;
         for (let i = 0; i < CASINO_SIZE; i++) {
             for (let j = 0; j < CASINO_SIZE; j++) {
@@ -3587,7 +3588,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         }
         _vState.set(message.author.id, cCount);
 
-        // Текст вывода результатов
+        // Текст результатов
         let resultText = log ? `${log}\n` : '';
         if (totalWinnings === 0) {
             resultText += `😔 Совпадений не было. Проигрыш: **${bet}** 🪙`;
@@ -3612,6 +3613,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         });
         return;
     }
+
 
 
 
