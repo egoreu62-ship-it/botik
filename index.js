@@ -3108,6 +3108,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
                 .setImage(gif)]
         });
         return;
+        }
 
        
 
