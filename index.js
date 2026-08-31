@@ -397,20 +397,18 @@ function formatSugarGrid(grid) {
 }
 
 function getPayoutMultiplier(symbol, clusterSize) {
-    // 1. Принудительно превращаем в строку, если прилетел объект
+    // Явно приводим входящий аргумент к строке и убираем лишние пробелы
     let symStr = String(symbol).trim(); 
     
-    // 2. Список разрешенных символов в таблице
+    // Список разрешенных эмодзи в таблице CLUSTER_PAYOUTS
     const allowed = ['🍒', '🍋', '🔔', '💎', '7️⃣'];
     
-    // 3. Если символ не входит в список или пустой — жестко ставим вишню
+    // Если символ пустой или не из списка, принудительно ставим вишню
     if (!allowed.includes(symStr)) {
         symStr = '🍒';
     }
 
     const tiers = CLUSTER_PAYOUTS[symStr];
-    
-    // 4. Если по какой-то причине tiers всё еще пустой — отдаем дефолт х0.5
     if (!tiers) return 0.50;
 
     const thresholds = Object.keys(tiers).map(Number).sort((a, b) => b - a);
@@ -421,6 +419,7 @@ function getPayoutMultiplier(symbol, clusterSize) {
     const minKey = Math.min(...thresholds);
     return tiers[minKey] || 0.50;
 }
+
 
     
     const tiers = CLUSTER_PAYOUTS[symbol];
