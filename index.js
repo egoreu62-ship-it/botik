@@ -342,7 +342,7 @@ function calculateGridWin(grid, bet, roundMultiplier = 1) {
 
     return { totalWinnings, winningRows };
 }
-const CASCADE_MIN_MATCH = 5; // сколько одинаковых символов нужно на всей сетке 3×5, чтобы сработал каскад
+const CASCADE_MIN_MATCH = 7; // сколько одинаковых символов нужно на всей сетке 3×5, чтобы сработал каскад
 const CASCADE_MAX_STEPS = 6; // предохранитель от бесконечных каскадов
 
 // Сетка теперь по колонкам (5 колонок × 3 символа сверху вниз) — нужно для "падения"
@@ -1202,6 +1202,220 @@ client.on('messageCreate', async (message) => {
             ); //
 
             helpMessage.edit({ components: [disabledRow1, disabledRow2] }).catch(() => {}); //
+        });
+
+        return;
+    }
+    // ---- !menu (интерактивная панель) ----
+    if (message.content === '!menu') {
+        function buildMenuRows() {
+            const row1 = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('menu_profile').setLabel('👤 Профиль').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('menu_inventory').setLabel('🎒 Инвентарь').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('menu_shop').setLabel('🛒 Магазин ролей').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('menu_top').setLabel('🏆 Топ').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('menu_achievements').setLabel('🏅 Достижения').setStyle(ButtonStyle.Primary)
+            );
+            const row2 = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('menu_family').setLabel('👨‍👩‍👧 Семья').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('menu_body').setLabel('⚖️ Тело').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('menu_market').setLabel('🛍️ Маркет еды').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('menu_cases').setLabel('📦 Кейсы').setStyle(ButtonStyle.Secondary)
+            );
+            return [row1, row2];
+        }
+
+        function buildBackRow() {
+            return new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('menu_back').setLabel('⬅️ Назад').setStyle(ButtonStyle.Secondary)
+            );
+        }
+
+        function buildProfileEmbed(userId, username, avatarUrl) {
+            const level = getLevel(userId);
+            const userXp = getXp(userId);
+            const nextLevelXp = xpForLevel(level + 1);
+            const userStats = getStats(userId);
+            const partnerId = marriages[userId];
+            const unlockedCount = (achievementsUnlocked[userId] || []).length;
+
+            return new EmbedBuilder()
+                .setColor(0x5865F2)
+                .setTitle(`👤 Профиль: ${username}`)
+                .setThumbnail(avatarUrl)
+                .setDescription(
+                    `**Баланс:** ${getBalance(userId)} 🪙\n` +
+                    `**Уровень:** ${level} (${userXp} / ${Math.floor(nextLevelXp)} XP)\n` +
+                    `**В браке с:** ${partnerId ? `<@${partnerId}>` : 'ни с кем 💔'}\n\n` +
+                    `**Победы в дуэлях:** ${userStats.duelWins} (серия: ${userStats.duelStreak})\n` +
+                    `**Победы в казино:** ${userStats.casinoWins}\n` +
+                    `**Проигрыши в казино:** ${userStats.casinoLosses}\n` +
+                    `**Открыто кейсов:** ${userStats.casesOpened}\n` +
+                    `**Инвентарь:** ${getInventory(userId).reduce((s, i) => s + i.price, 0)} 🪙 (${getInventory(userId).length} скинов)\n` +
+                    `**Достижений:** ${unlockedCount} / ${ACHIEVEMENTS.length}`
+                );
+        }
+
+        function buildInventoryEmbed(userId, username) {
+            const inv = getInventory(userId);
+            if (inv.length === 0) {
+                return new EmbedBuilder()
+                    .setColor(0x808080)
+                    .setTitle(`🎒 Инвентарь ${username}`)
+                    .setDescription('Пусто. Открой кейс командой `!case`');
+            }
+
+            const sorted = [...inv].sort((a, b) => b.price - a.price).slice(0, 15);
+            const totalValue = inv.reduce((sum, s) => sum + s.price, 0);
+
+            let text = '';
+            sorted.forEach((skin) => {
+                const realIndex = inv.indexOf(skin) + 1;
+                text += `${realIndex}. ${skin.rarityName} **${skin.name}** — ${skin.price} 🪙\n`;
+            });
+            if (inv.length > 15) text += `\n...и ещё ${inv.length - 15}`;
+
+            return new EmbedBuilder()
+                .setColor(0x5865F2)
+                .setTitle(`🎒 Инвентарь ${username}`)
+                .setDescription(`Общая ценность: ${totalValue} 🪙\n\n${text}\n\nПродать: \`!sell <номер>\`, улучшить: \`!upgrade <номер> <множитель>\``);
+        }
+
+        function buildShopEmbed() {
+            if (shopItems.length === 0) {
+                return new EmbedBuilder()
+                    .setColor(0x808080)
+                    .setTitle('🛒 Магазин ролей')
+                    .setDescription('Магазин пуст.');
+            }
+
+            let text = '';
+            shopItems.forEach((item, i) => {
+                text += `${i + 1}. **${item.roleName}** — ${item.price} 🪙\n`;
+            });
+
+            return new EmbedBuilder()
+                .setColor(0x5865F2)
+                .setTitle('🛒 Магазин ролей')
+                .setDescription(`${text}\nКупить: \`!buy <номер>\``);
+        }
+
+        function buildTopEmbed() {
+            const entries = Object.keys(balances)
+                .map(id => ({ id, value: getBalance(id) }))
+                .filter(e => e.value > 0)
+                .sort((a, b) => b.value - a.value)
+                .slice(0, 10);
+
+            if (entries.length === 0) {
+                return new EmbedBuilder().setColor(0x808080).setTitle('🏆 Топ по балансу').setDescription('Пока пусто');
+            }
+
+            const medals = ['🥇', '🥈', '🥉'];
+            let text = '';
+            entries.forEach((e, i) => {
+                text += `${medals[i] || `${i + 1}.`} <@${e.id}> — ${e.value} 🪙\n`;
+            });
+
+            return new EmbedBuilder().setColor(0x5865F2).setTitle('🏆 Топ по балансу').setDescription(text);
+        }
+
+        function buildAchievementsEmbed(userId) {
+            const unlocked = achievementsUnlocked[userId] || [];
+            let text = '';
+            ACHIEVEMENTS.forEach(ach => {
+                const done = unlocked.includes(ach.id);
+                text += `${done ? '✅' : '🔒'} **${ach.name}** — ${ach.desc} (${ach.reward} 🪙)\n`;
+            });
+
+            return new EmbedBuilder().setColor(0x5865F2).setTitle('🏅 Достижения').setDescription(text);
+        }
+
+        function buildFamilyEmbed(userId, username) {
+            const partnerId = marriages[userId];
+            if (!partnerId) {
+                return new EmbedBuilder().setColor(0x808080).setTitle(`👨‍👩‍👧 Семья ${username}`).setDescription('Не в браке 💔');
+            }
+            const familyKey = [userId, partnerId].sort().join('_');
+            const familyChildren = children[familyKey] || [];
+            let text = `Партнёр: <@${partnerId}>\n\n`;
+            text += familyChildren.length > 0
+                ? familyChildren.map(c => `👶 ${c.name} (${c.stage || 'малыш'})`).join('\n')
+                : 'Детей пока нет';
+            return new EmbedBuilder().setColor(0x5865F2).setTitle(`👨‍👩‍👧 Семья ${username}`).setDescription(text);
+        }
+
+        function buildBodyEmbed(userId, username) {
+            const body = getBodyStats(userId);
+            return new EmbedBuilder()
+                .setColor(0x5865F2)
+                .setTitle(`⚖️ Параметры ${username}`)
+                .setDescription(
+                    `Вес: ${body.weight.toFixed(1)} кг\n` +
+                    `💪 Грудь: ${body.chest}\n💪 Руки: ${body.arms}\n🦵 Ноги: ${body.legs}\n\n` +
+                    `Тренировка: \`!gym chest/arms/legs\`, поесть: \`!eat <предмет>\``
+                );
+        }
+
+        function buildMarketEmbed() {
+            let text = '';
+            MARKET_ITEMS.forEach(item => {
+                text += `\`${item.id}\` — ${item.name} — ${item.price} 🪙\n`;
+            });
+            return new EmbedBuilder().setColor(0x5865F2).setTitle('🛍️ Маркет еды и вещей').setDescription(`${text}\nКупить: \`!buyitem <предмет> <кол-во>\``);
+        }
+
+        function buildCasesEmbed() {
+            let text = '';
+            CASES.forEach(c => {
+                text += `\`${c.id}\` — **${c.name}** — ${c.cost} 🪙\n`;
+            });
+            return new EmbedBuilder().setColor(0x5865F2).setTitle('📦 Кейсы').setDescription(`${text}\nОткрыть: \`!case <id>\``);
+        }
+
+        const menuMsg = await message.reply({
+            embeds: [new EmbedBuilder()
+                .setColor(0x5865F2)
+                .setTitle('📋 Главное меню')
+                .setDescription('Выбери раздел ниже 👇')],
+            components: buildMenuRows()
+        });
+
+        const collector = menuMsg.createMessageComponentCollector({
+            componentType: ComponentType.Button,
+            time: 5 * 60 * 1000,
+            filter: (i) => i.user.id === message.author.id
+        });
+
+        collector.on('collect', async (interaction) => {
+            const userId = message.author.id;
+            const username = message.author.username;
+            const avatarUrl = message.author.displayAvatarURL();
+
+            if (interaction.customId === 'menu_back') {
+                await interaction.update({
+                    embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle('📋 Главное меню').setDescription('Выбери раздел ниже 👇')],
+                    components: buildMenuRows()
+                });
+                return;
+            }
+
+            let embed;
+            if (interaction.customId === 'menu_profile') embed = buildProfileEmbed(userId, username, avatarUrl);
+            else if (interaction.customId === 'menu_inventory') embed = buildInventoryEmbed(userId, username);
+            else if (interaction.customId === 'menu_shop') embed = buildShopEmbed();
+            else if (interaction.customId === 'menu_top') embed = buildTopEmbed();
+            else if (interaction.customId === 'menu_achievements') embed = buildAchievementsEmbed(userId);
+            else if (interaction.customId === 'menu_family') embed = buildFamilyEmbed(userId, username);
+            else if (interaction.customId === 'menu_body') embed = buildBodyEmbed(userId, username);
+            else if (interaction.customId === 'menu_market') embed = buildMarketEmbed();
+            else if (interaction.customId === 'menu_cases') embed = buildCasesEmbed();
+
+            await interaction.update({ embeds: [embed], components: [buildBackRow()] });
+        });
+
+        collector.on('end', () => {
+            menuMsg.edit({ components: [] }).catch(() => {});
         });
 
         return;
@@ -2761,23 +2975,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         // ---- !casino <ставка> ----
     if (message.content.startsWith('!casino')) {
         
-        // Кулдаун проверяем ТОЛЬКО если это не бонус-бай
-        if (!message.content.startsWith('!casino bonus')) {
-            const userId = message.author.id;
-            const now = Date.now();
-            const CASINO_CD_MS = 30 * 1000; // 30 sec 
-
-            if (casinoCooldowns.has(userId)) {
-                const expirationTime = casinoCooldowns.get(userId) + CASINO_CD_MS;
-                if (now < expirationTime) {
-                    const timeLeft = Math.ceil((expirationTime - now) / 1000);
-                    message.reply(`⏳ Крутить казик можно раз в минуту! Подожди ещё **${timeLeft} сек.**`);
-                    return;
-                }
-            }
-            // Все проверки пройдены, вешаем кулдаун на обычную игру
-            casinoCooldowns.set(userId, now);
-        }
+    
 
         const args = message.content.split(' ');
         const bet = parseInt(args[1]);
@@ -2798,6 +2996,23 @@ startTurnTimer(); // запускаем таймер на самый первы�
         if (bet > dynamicMaxBet) {
             message.reply(`❌ Твой лимит ставки сейчас — не больше ${dynamicMaxBet} 🪙! (Лимит растёт вместе с балансом)`);
             return;
+        }
+        // Кулдаун проверяем ТОЛЬКО если это не бонус-бай
+        if (!message.content.startsWith('!casino bonus')) {
+            const userId = message.author.id;
+            const now = Date.now();
+            const CASINO_CD_MS = 30 * 1000; // 30 sec 
+
+            if (casinoCooldowns.has(userId)) {
+                const expirationTime = casinoCooldowns.get(userId) + CASINO_CD_MS;
+                if (now < expirationTime) {
+                    const timeLeft = Math.ceil((expirationTime - now) / 1000);
+                    message.reply(`⏳ Крутить казик можно раз в минуту! Подожди ещё **${timeLeft} сек.**`);
+                    return;
+                }
+            }
+            // Все проверки пройдены, вешаем кулдаун на обычную игру
+            casinoCooldowns.set(userId, now);
         }
 
         // Дальше идёт твой неизменённый код генерации сетки (const houseEdgeRoll = Math.random(); и т.д.)
@@ -2834,12 +3049,12 @@ startTurnTimer(); // запускаем таймер на самый первы�
 
         while (match && cascadeCount < CASCADE_MAX_STEPS) {
             cascadeCount++;
-            const stepWinnings = Math.floor(bet * match.value * 0.3 * cascadeMultiplier);
+            const stepWinnings = Math.floor(bet * match.value * 0.2 * cascadeMultiplier);
             totalWinnings += stepWinnings;
             log += `Каскад ${cascadeCount}: ${match.symbol} ×${match.count} — +${stepWinnings} 🪙 (множитель ×${cascadeMultiplier})\n`;
 
             colGrid = cascadeDrop(colGrid, match.symbol);
-            cascadeMultiplier += 0.3;
+            cascadeMultiplier += 0.2;
 
             await spinMsg.edit({
                 embeds: [new EmbedBuilder()
