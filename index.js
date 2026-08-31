@@ -434,7 +434,7 @@ function findSugarClusters(grid) {
         for (let c = 0; c < CASINO_SIZE; c++) {
             if (visited[r][c]) continue;
 
-              const sym = grid && grid[firstR] ? String(grid[firstR][firstC]) : '🍒';
+              const sym = grid && grid[r] ? String(grid[r][c]) : '🍒';
               if (!sym || sym === 'undefined' || sym === 'null') continue;
               const cluster = [];
               const queue = [[r, c]];
