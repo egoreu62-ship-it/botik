@@ -397,19 +397,26 @@ function formatSugarGrid(grid) {
 }
 
 function getPayoutMultiplier(symbol, clusterSize) {
-    // ЗАЩИТА: Если символа нет в таблице выплат, берём дефолтную вишенку, чтобы бот не падал
-    const tiers = CLUSTER_PAYOUTS[symbol] || CLUSTER_PAYOUTS['🍒'];
+    // ЖЕСТКАЯ ЗАЩИТА: Если символ пустой, undefined, или его нет в таблице выплат — берем вишню
+    if (!symbol || !CLUSTER_PAYOUTS[symbol]) {
+        symbol = '🍒';
+    }
     
-    // Перестраховка: если tiers всё ещё пустой (на случай, если и вишни нет)
-    if (!tiers) return 0.15;
+    const tiers = CLUSTER_PAYOUTS[symbol];
+    
+    // Перестраховка: если tiers почему-то не определился
+    if (!tiers) return 0.50;
 
     const thresholds = Object.keys(tiers).map(Number).sort((a, b) => b - a);
     for (const threshold of thresholds) {
         if (clusterSize >= threshold) return tiers[threshold];
     }
-    // Если размер кластера меньше 5, возвращаем самый минимальный коэффициент
-    return tiers || 0.15;
+    
+    // Если размер кластера меньше минимального, отдаем базовую выплату за 5 штук
+    const minKey = Math.min(...thresholds);
+    return tiers[minKey] || 0.50;
 }
+
 
 
 function findSugarClusters(grid) {
@@ -421,6 +428,7 @@ function findSugarClusters(grid) {
             if (visited[r][c]) continue;
 
             const sym = grid[r][c];
+            if (!sym) continue; // Пропускаем пустые клетки, если каскад отработал некорректно
             const cluster = [];
             const queue = [[r, c]];
             visited[r][c] = true;
