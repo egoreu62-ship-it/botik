@@ -89,6 +89,8 @@ let { blacklist, whitelist, likes, balances, lastDaily, redeemedPromo, shopItems
 const casinoCooldowns = new Map(); // { userId: timestamp }
 const caseCooldowns = new Map();   // { userId: { timestamps: [], blockedUntil: null } }
 const gymTracker = new Map(); // { userId: { count: 0, resetTime: 0 } }
+const tradeCooldowns = new Map(); // { userId: timestamp }
+
 
 
 
@@ -203,13 +205,14 @@ const WEIGHT_DEFAULT = 70;
 
 function getBodyStats(userId) {
     if (!bodyStats[userId]) {
-        bodyStats[userId] = { weight: WEIGHT_DEFAULT, chest: 10, arms: 10, legs: 10, cardio: 10 }; // <-- ДОБАВИЛИ cardio: 10
+        bodyStats[userId] = { weight: WEIGHT_DEFAULT, chest: 10, arms: 10, legs: 10, cardio: 10, satiety: 100 }; // <-- ДОБАВИЛИ satiety
     }
-    // На случай, если у старых игроков этого поля еще нет в JSON:
     if (typeof bodyStats[userId].cardio !== 'number') bodyStats[userId].cardio = 10;
+    if (typeof bodyStats[userId].satiety !== 'number') bodyStats[userId].satiety = 100; // Накатываем старым юзерам
     
     return bodyStats[userId];
 }
+
 
 
 // ==== Беременность ====
@@ -636,6 +639,32 @@ setInterval(async () => {
 // ==== Жизнедеятельность детей (Тамагочи-система) ====
 setInterval(async () => {
     const now = Date.now();
+        // ---- Естественный голод игроков ----
+    for (const userId in bodyStats) {
+        const pBody = bodyStats[userId];
+        if (typeof pBody.satiety !== 'number') pBody.satiety = 100;
+        
+        // Раз в 30 минут сытость игрока падает на 4 единицы
+        pBody.satiety = Math.max(0, pBody.satiety - 4);
+
+        // Если сытость на нуле, игрок стремительно худеет и истощается
+        if (pBody.satiety === 0) {
+            pBody.weight = Math.max(0, pBody.weight - 3);
+            
+            // Если вес падает ниже критического минимума — смерть от голода
+            if (pBody.weight <= WEIGHT_MIN) {
+                pBody.weight = WEIGHT_DEFAULT;
+                pBody.chest = 10; pBody.arms = 10; pBody.legs = 10; pBody.cardio = 10; pBody.satiety = 100;
+                setBalance(userId, Math.floor(getBalance(userId) / 2)); // Штраф половины фишек за смерть
+                try {
+                    client.users.fetch(userId).then(user => {
+                        message.channel.send(`💀 **Голодная смерть:** <@${userId}> забывал есть, его вес упал ниже критической отметки. Он истощился и умер. Воскрешение с базовыми статами, половина баланса потеряна...`);
+                    }).catch(() => {});
+                } catch(e) {}
+            }
+        }
+    }
+
     
     for (const familyKey in children) {
         const familyChildren = children[familyKey];
@@ -2125,7 +2154,8 @@ client.on('messageCreate', async (message) => {
             `💪 Грудь: ${body.chest}\n` +
             `💪 Руки: ${body.arms}\n` +
             `🦵 Ноги: ${body.legs}`+
-            `🏃 Кардио: ${body.cardio}` // <-- Добавили вывод кардио
+            `🏃 Кардио: ${body.cardio}`+ // <-- Добавили вывод кардио
+            `🍖 Сытость: ${body.satiety}/100`
         );
         return;
     }
@@ -2152,6 +2182,7 @@ client.on('messageCreate', async (message) => {
         const body = getBodyStats(message.author.id);
         const weightGain = item.category === 'junk' ? 3 : item.category === 'basic' ? 0.5 : 1.5;
         body.weight += weightGain;
+        body.satiety = Math.min(100, body.satiety + 30);
 
         saveLists();
 
@@ -2576,12 +2607,16 @@ client.on('messageCreate', async (message) => {
         return;
     }
 
-    // ---- !sell <номер скина> ----
+       // ---- !sell <номер скина> ----
     const SELL_PERCENTAGE = 0.8; // продажа за 80% от цены
 
-    if (message.content.startsWith('!sell')) {
+    // Вытаскиваем строго первое слово сообщения (саму команду)
+    const currentCommand = message.content.split(' ')[0];
+
+    if (currentCommand === '!sell') { // <--- Теперь совпадение СТРОГОЕ! !sellskin сюда не попадёт
         const args = message.content.split(' ');
         const index = parseInt(args[1]) - 1;
+
 
         const inv = getInventory(message.author.id);
 
@@ -2600,6 +2635,105 @@ client.on('messageCreate', async (message) => {
         message.reply(`💰 Продано: **${skin.name}** за ${sellPrice} 🪙 (80% от цены). Баланс: ${getBalance(message.author.id)} 🪙`);
         return;
     }
+        // ---- !sellskin @человек <номер_скина> <цена> ----
+    if (message.content.startsWith('!sellskin')) {
+        const target = message.mentions.users.first();
+        const args = message.content.split(' ');
+        
+        // Разбираем аргументы: !sellskin @юзер 1 5000
+        const index = parseInt(args[2]) - 1;
+        const price = parseInt(args[3]);
+
+        if (!target || target.bot || target.id === message.author.id || isNaN(index) || isNaN(price) || price <= 0) {
+            return message.reply('❌ Напиши так: `!sellskin @человек <номер_скина> <цена>`');
+        }
+
+        // 1. Проверка жесткого кулдауна в 15 минут
+        const now = Date.now();
+        const TRADE_CD_MS = 15 * 60 * 1000;
+        if (tradeCooldowns.has(message.author.id)) {
+            const expire = tradeCooldowns.get(message.author.id) + TRADE_CD_MS;
+            if (now < expire) {
+                const remaining = Math.ceil((expire - now) / 1000);
+                const min = Math.floor(remaining / 60);
+                const sec = remaining % 60;
+                return message.reply(`⏳ Торговать с игроками можно раз в 15 минут! Жди ещё **${min}м ${sec}с**`);
+            }
+        }
+
+        const inv = getInventory(message.author.id);
+        if (!inv[index]) {
+            return message.reply('❌ Скин с таким номером не найден в твоем инвентаре.');
+        }
+
+        const skin = inv[index];
+        const maxPrice = Math.floor(skin.price * 1.20);
+
+        // 2. Ограничение цены: не выше 120% стоимости лота
+        if (price > maxPrice) {
+            return message.reply(`❌ Превышен лимит спекуляции! Системная цена скина: ${skin.price} 🪙. Максимально допустимая цена продажи (120%): **${maxPrice}** 🪙`);
+        }
+
+        // Проверка баланса покупателя
+        const buyerBalance = getBalance(target.id);
+        if (buyerBalance < price) {
+            return message.reply(`❌ У покупателя ${target} не хватает фишек для совершения сделки.`);
+        }
+
+        // 3. Подтверждение сделки кнопками от лица покупателя
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('trade_accept').setLabel('🤝 Купить скин').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('trade_decline').setLabel('❌ Отклонить').setStyle(ButtonStyle.Danger)
+        );
+
+        const tradeMsg = await message.reply({
+            content: `🛒 ${message.author} предлагает тебе купить скин **${skin.rarityName} ${skin.name}** за **${price}** 🪙.\n${target}, ты согласен на покупку?`,
+            components: [row]
+        });
+
+        try {
+            const confirmation = await tradeMsg.awaitMessageComponent({
+                componentType: ComponentType.Button,
+                time: 45000, // 45 секунд на подумать покупателю
+                filter: (i) => i.user.id === target.id
+            });
+
+            if (confirmation.customId === 'trade_decline') {
+                await confirmation.update({ content: `❌ ${target} отказался от покупки скина.`, components: [] });
+                return;
+            }
+
+            // Финальный перерасчет статов в базе на момент клика
+            const freshInv = getInventory(message.author.id);
+            if (!freshInv[index] || freshInv[index].obtainedAt !== skin.obtainedAt) {
+                return confirmation.update({ content: '❌ Ошибка сделки! Продавец переместил или продал скин во время ожидания.', components: [] });
+            }
+            if (getBalance(target.id) < price) {
+                return confirmation.update({ content: '❌ Ошибка сделки! У покупателя уже не хватает фишек.', components: [] });
+            }
+
+            // Проводим транзакцию
+            freshInv.splice(index, 1); // забираем у продавца
+            getInventory(target.id).push(skin); // даем покупателю
+
+            setBalance(target.id, getBalance(target.id) - price);
+            setBalance(message.author.id, getBalance(message.author.id) + price);
+            
+            // Вешаем КД на торговлю продавцу
+            tradeCooldowns.set(message.author.id, now);
+            saveLists();
+
+            await confirmation.update({
+                content: `🎉 **Сделка успешно завершена!**\n🛒 ${target} приобрел скин **${skin.name}** у <@${message.author.id}> за **${price}** 🪙!`,
+                components: []
+            });
+
+        } catch (e) {
+            await tradeMsg.edit({ content: '⏱️ Время ожидания ответа покупателя истекло. Сделка отменена.', components: [] }).catch(() => {});
+        }
+        return;
+    }
+
     // ---- !achievements ----
     if (message.content === '!achievements') {
         const unlocked = achievementsUnlocked[message.author.id] || [];
@@ -2613,6 +2747,194 @@ client.on('messageCreate', async (message) => {
         message.reply(text);
         return;
     }
+        // ---- !skinauction <номер скина> <старт цена> <минуты> ----
+    if (message.content.startsWith('!skinauction')) {
+        const args = message.content.split(' ');
+        const index = parseInt(args[1]) - 1;
+        const startPrice = parseInt(args[2]);
+        const minutes = parseInt(args[3]);
+
+        const inv = getInventory(message.author.id);
+
+        if (isNaN(index) || !inv[index] || !startPrice || !minutes) {
+            return message.reply('❌ Напиши так: `!skinauction 1 500 5` (номер скина из `!inventory`, старт цена, минуты)');
+        }
+
+        if (global.activeSkinAuction) {
+            return message.reply('❌ Уже идёт другой аукцион на скин, дождись его окончания.');
+        }
+
+        const skin = inv[index];
+
+        global.activeSkinAuction = {
+            sellerId: message.author.id,
+            skin: skin,
+            skinIndexInInv: index, // запоминаем позицию на момент старта
+            highestBid: startPrice,
+            highestBidder: null,
+            channelId: message.channel.id
+        };
+
+        message.reply(
+            `🔨 **Аукцион на СКИН!**\n👤 Продавец: ${message.author}\n` +
+            `📦 Лот: **${skin.rarityName} ${skin.name}** (${skin.price} 🪙)\n` +
+            `💰 Стартовая цена: ${startPrice} 🪙 | ⏱️ Время: ${minutes} мин\n\n` +
+            `Чтобы перебить ставку, пишите: \`!skinbid <сумма>\``
+        );
+
+        setTimeout(async () => {
+            const auction = global.activeSkinAuction;
+            global.activeSkinAuction = null;
+
+            if (!auction) return;
+
+            // Если ставок не было
+            if (!auction.highestBidder) {
+                message.channel.send(`🔨 Аукцион на скин **${auction.skin.name}** завершён. Ставок не было, предмет остался у владельца.`);
+                return;
+            }
+
+            // Финальная проверка: остался ли скин у продавца и деньги у покупателя
+            const sellerInv = getInventory(auction.sellerId);
+            const currentSkin = sellerInv[auction.skinIndexInInv];
+
+            if (!currentSkin || currentSkin.name !== auction.skin.name || currentSkin.obtainedAt !== auction.skin.obtainedAt) {
+                return message.channel.send(`🔨 Аукцион сорван! Продавец избавился от скина во время торгов.`);
+            }
+
+            const winnerBalance = getBalance(auction.highestBidder.id);
+            if (winnerBalance < auction.highestBid) {
+                return message.channel.send(`🔨 Аукцион завершён, но у победителя <@${auction.highestBidder.id}> не хватило фишек для выкупа лота.`);
+            }
+
+            // Проводим сделку
+            sellerInv.splice(auction.skinIndexInInv, 1); // забираем у продавца
+            getInventory(auction.highestBidder.id).push(auction.skin); // отдаем покупателю
+
+            setBalance(auction.highestBidder.id, winnerBalance - auction.highestBid); // забираем деньги у покупателя
+            setBalance(auction.sellerId, getBalance(auction.sellerId) + auction.highestBid); // отдаем деньги продавцу
+            saveLists();
+
+            message.channel.send(
+                `🔨 **ЛОТ ПРОДАН!**\n🎉 Победитель: <@${auction.highestBidder.id}> забирает **${auction.skin.name}** за **${auction.highestBid}** 🪙!\n` +
+                `👤 Продавец <@${auction.sellerId}> получил свои фишки.`
+            );
+        }, minutes * 60 * 1000);
+
+        return;
+    }
+
+    // ---- !skinbid <сумма> ----
+    if (message.content.startsWith('!skinbid')) {
+        const args = message.content.split(' ');
+        const amount = parseInt(args[1]);
+
+        if (!global.activeSkinAuction) {
+            return message.reply('❌ Сейчас нет активных аукционов на скины.');
+        }
+
+        if (message.author.id === global.activeSkinAuction.sellerId) {
+            return message.reply('❌ Ты не можешь делать ставки на собственный лот!');
+        }
+
+        if (!amount || amount <= global.activeSkinAuction.highestBid) {
+            return message.reply(`❌ Ставка должна быть БОЛЬШЕ текущей максимы (${global.activeAuction ? global.activeAuction.highestBid : global.activeSkinAuction.highestBid} 🪙)`);
+        }
+
+        if (amount > getBalance(message.author.id)) {
+            return message.reply(`❌ У тебя нет столько фишек! Твой баланс: ${getBalance(message.author.id)} 🪙`);
+        }
+
+        global.activeSkinAuction.highestBid = amount;
+        global.activeSkinAuction.highestBidder = message.author;
+
+        message.reply(`💰 **Новая ставка!** Пользователь ${message.author} поставил **${amount}** 🪙 за лот.`);
+        return;
+    }
+
+
+        // ---- !sellall <редкость> ----
+    if (message.content.startsWith('!sellall')) {
+        const args = message.content.split(' ');
+        const rarityInput = args[1]?.toLowerCase();
+
+        if (!rarityInput) {
+            return message.reply('❌ Укажи редкость! Пример: `!sellall common` (варианты: common, uncommon, rare, epic, legendary)');
+        }
+
+        const inv = getInventory(message.author.id);
+        const toSell = inv.filter(s => s.rarityId === rarityInput);
+
+        if (toSell.length === 0) {
+            return message.reply(`❌ У тебя нет скинов редкости **${rarityInput}**.`);
+        }
+
+        let totalSellPrice = 0;
+        // Продажа за 80% от цены, как в обычной одиночной продаже
+        toSell.forEach(skin => {
+            totalSellPrice += Math.floor(skin.price * 0.8);
+        });
+
+        // Удаляем проданные скины из инвентаря
+        inventory[message.author.id] = inv.filter(s => s.rarityId !== rarityInput);
+        setBalance(message.author.id, getBalance(message.author.id) + totalSellPrice);
+        saveLists();
+
+        message.reply(`💰 Продано **${toSell.length}** скинов редкости [${rarityInput}] за **${totalSellPrice}** 🪙. Баланс: ${getBalance(message.author.id)} 🪙`);
+        return;
+    }
+
+    // ---- !upgradeall <редкость> <множитель> ----
+    if (message.content.startsWith('!upgradeall')) {
+        const args = message.content.split(' ');
+        const rarityInput = args[1]?.toLowerCase();
+        const multiplier = parseFloat(args[2]);
+
+        const inv = getInventory(message.author.id);
+        if (!rarityInput || isNaN(multiplier) || ![1.5, 2, 3, 5, 10].includes(multiplier)) {
+            return message.reply('❌ Напиши так: `!upgradeall common 2` (множители: 1.5, 2, 3, 5, 10)');
+        }
+
+        const toUpgrade = inv.filter(s => s.rarityId === rarityInput);
+        if (toUpgrade.length === 0) {
+            return message.reply(`❌ У тебя нет скинов редкости [${rarityInput}] для апгрейда.`);
+        }
+
+        // Шанс апгрейда с учетом твоего House Edge (90% от честного шанса)
+        const chance = (100 / multiplier) * 0.90 / 100;
+        let successCount = 0;
+        let failCount = 0;
+        let upgradedSkins = [];
+
+        toUpgrade.forEach(skin => {
+            if (Math.random() < chance) {
+                successCount++;
+                const newPrice = Math.floor(skin.price * multiplier);
+                let newRarity = RARITIES[0];
+                for (const r of RARITIES) {
+                    if (newPrice >= r.minPrice) newRarity = r;
+                }
+                upgradedSkins.push({
+                    name: skin.name,
+                    price: newPrice,
+                    rarityId: newRarity.id,
+                    rarityName: newRarity.name,
+                    obtainedAt: Date.now()
+                });
+            } else {
+                failCount++;
+            }
+        });
+
+        // Оставляем в инвентаре скины других редкостей + те, что успешно апнулись
+        const otherSkins = inv.filter(s => s.rarityId !== rarityInput);
+        inventory[message.author.id] = [...otherSkins, ...upgradedSkins];
+        saveLists();
+
+        message.reply(`🎯 **Массовый апгрейд [×${multiplier}] выполнен!**\n🔥 Сгорело скинов: **${failCount}** шт.\n✅ Успешно улучшено: **${successCount}** шт.\nИнвентарь обновлен! Посмотреть: \`!inventory\``);
+        return;
+    }
+
 
 
     
