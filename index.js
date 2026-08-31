@@ -2072,6 +2072,7 @@ client.on('messageCreate', async (message) => {
             content: `🔔 <@${message.author.id}> хочет переименовать вашего ребенка **${child.name}** в **${newName}**.\n<@${partnerId}>, требуется твое согласие! Нажми на кнопку ниже.`,
             components: [row]
         });
+        
 
         // Коллектор кнопок, ждем клика именно от ПАРТНЕРА
         try {
@@ -2099,6 +2100,91 @@ client.on('messageCreate', async (message) => {
         }
         return;
     }
+        // ---- !givechild @человек <имя_ребенка> ----
+    if (message.content.startsWith('!givechild')) {
+        const target = message.mentions.users.first();
+        const args = message.content.split(' ');
+        
+        // Всё, что идет после упоминания, собираем в имя ребенка
+        const childName = args.slice(2).join(' ').trim();
+
+        if (!target || target.bot || target.id === message.author.id || !childName) {
+            message.reply('❌ Напиши так: `!givechild @человек <имя_ребенка>`\nПример: `!givechild @Друг Саша`');
+            return;
+        }
+
+        const partnerId = marriages[message.author.id];
+        // Формируем текущий ключ семьи автора
+        const sourceFamilyKey = partnerId 
+            ? [message.author.id, partnerId].sort().join('_') 
+            : message.author.id; // на случай, если брак был расторгнут, но дети остались в массиве
+
+        const sourceChildren = children[sourceFamilyKey] || [];
+        const childIndex = sourceChildren.findIndex(c => c.name.toLowerCase() === childName.toLowerCase());
+
+        if (childIndex === -1) {
+            message.reply(`❌ Ребенок с именем **${childName}** не найден в твоей семье.`);
+            return;
+        }
+
+        const childObj = sourceChildren[childIndex];
+
+        // Кнопки для согласия получателя
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('child_accept').setLabel('👶 Принять ребенка').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('child_decline').setLabel('❌ Отказаться').setStyle(ButtonStyle.Danger)
+        );
+
+        const inviteMsg = await message.reply({
+            content: `🔔 <@${message.author.id}> хочет передать ребенка **${childObj.name}** тебе, ${target}!\nТы согласен стать его новым родителем?`,
+            components: [row]
+        });
+
+        try {
+            const confirmation = await inviteMsg.awaitMessageComponent({
+                componentType: ComponentType.Button,
+                time: 60000, // 1 минута на размышление
+                filter: (i) => i.user.id === target.id
+            });
+
+            if (confirmation.customId === 'child_decline') {
+                await confirmation.update({ content: `❌ ${target} отказался принимать ребенка. Он остается в старой семье.`, components: [] });
+                return;
+            }
+
+            // Перепроверяем, не украли/умер ли ребенок, пока шло голосование
+            const freshSourceChildren = children[sourceFamilyKey] || [];
+            const freshIndex = freshSourceChildren.findIndex(c => c.name.toLowerCase() === childName.toLowerCase());
+            
+            if (freshIndex === -1) {
+                return confirmation.update({ content: '❌ Ошибка передачи! Ребенок больше не доступен в исходной семье.', components: [] });
+            }
+
+            // Формируем новый семейный ключ для получателя
+            const targetPartnerId = marriages[target.id];
+            const targetFamilyKey = targetPartnerId 
+                ? [target.id, targetPartnerId].sort().join('_') 
+                : target.id;
+
+            // Инициализируем массив детей у получателя, если его не было
+            if (!children[targetFamilyKey]) children[targetFamilyKey] = [];
+
+            // Проводим трансфер ребенка
+            freshSourceChildren.splice(freshIndex, 1); // вырезаем из старой семьи
+            children[targetFamilyKey].push(childObj); // прописываем в новую
+            saveLists();
+
+            await confirmation.update({
+                content: `🎉 **Ребенок передан!**\n👶 Малыш **${childObj.name}** успешно переехал в семью к ${target}! Опека официально переоформлена.`,
+                components: []
+            });
+
+        } catch (e) {
+            await inviteMsg.edit({ content: '⏱️ Время ожидания ответа истекло. Передача ребенка отменена.', components: [] }).catch(() => {});
+        }
+        return;
+    }
+
 
 
 
