@@ -3071,32 +3071,44 @@ startTurnTimer(); // запускаем таймер на самый первы�
             totalWinnings = bet * MAX_TOTAL_MULTIPLIER;
         }
 
-        const winnings = totalWinnings > 0 ? totalWinnings : -bet;
-        setBalance(message.author.id, balance + winnings);
+               // Вычисляем чистый итог раунда (весь улов минус ставка)
+        const netChange = totalWinnings - bet; 
+        // Обновляем баланс: списываем ставку и прибавляем улов
+        setBalance(message.author.id, balance + netChange);
 
-        const isWin = totalWinnings > 0;
+        // Чистая победа засчитывается, только если улов перебил ставку и вывел в плюс
+        const isNetWin = totalWinnings > bet; 
         const casinoStats = getStats(message.author.id);
-        if (isWin) casinoStats.casinoWins++; else casinoStats.casinoLosses++;
+        if (isNetWin) casinoStats.casinoWins++; else casinoStats.casinoLosses++;
         saveLists();
         checkAchievements(message.author.id, message);
 
-        const resultText = isWin
-            ? `${log}\n🎉 Итого выигрыш: ${totalWinnings} 🪙`
-            : `😔 Совпадений не было. Проигрыш: ${bet} 🪙`;
+        // Формируем честный текст с математикой раунда
+        let resultText = log ? `${log}\n` : '';
+        if (totalWinnings === 0) {
+            resultText += `😔 Совпадений не было. Проигрыш: **${bet}** 🪙`;
+        } else if (netChange < 0) {
+            resultText += `📉 **Частичный возврат:** Собрано каскадов на ${totalWinnings} 🪙, но раунд ушёл в убыток на **${Math.abs(netChange)}** 🪙`;
+        } else if (netChange === 0) {
+            resultText += `🤝 **В ноль:** Собрано каскадов ровно на сумму твоей ставки (${totalWinnings} 🪙). Ничего не потеряно.`;
+        } else {
+            resultText += `🎉 **Чистый плюс!** Собрано на ${totalWinnings} 🪙 (Чистая прибыль: **+${netChange}** 🪙)`;
+        }
 
-        const gif = isWin
+        // Радостная гифка выпадет только если игрок ушёл в реальный плюс
+        const gif = isNetWin
             ? WIN_GIFS[Math.floor(Math.random() * WIN_GIFS.length)]
             : LOSE_GIFS[Math.floor(Math.random() * LOSE_GIFS.length)];
 
         await spinMsg.edit({
             embeds: [new EmbedBuilder()
-                .setColor(isWin ? 0x00ff00 : 0xff0000)
+                .setColor(isNetWin ? 0x00ff00 : totalWinnings > 0 ? 0xffaa00 : 0xff0000) // Зеленый — плюс, Оранжевый — частичный возврат, Красный — полный ноль
                 .setTitle('🍬 Казино — каскад')
                 .setDescription(`${formatColumnGrid(colGrid)}\n\n${resultText}\n\nБаланс: ${getBalance(message.author.id)} 🪙`)
                 .setImage(gif)]
         });
         return;
-    }
+
        
 
 
