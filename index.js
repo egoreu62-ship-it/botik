@@ -207,12 +207,20 @@ const WEIGHT_DEFAULT = 70;
 
 function getBodyStats(userId) {
     if (!bodyStats[userId]) {
-        bodyStats[userId] = { weight: WEIGHT_DEFAULT, chest: 10, arms: 10, legs: 10, cardio: 10, satiety: 100 }; // <-- ДОБАВИЛИ satiety
+        bodyStats[userId] = { weight: WEIGHT_DEFAULT, chest: 10, arms: 10, legs: 10, cardio: 10, satiety: 100, gender: null, age: null };
     }
     if (typeof bodyStats[userId].cardio !== 'number') bodyStats[userId].cardio = 10;
     if (typeof bodyStats[userId].satiety !== 'number') bodyStats[userId].satiety = 100; // Накатываем старым юзерам
-    
+    if (typeof bodyStats[userId].gender === 'undefined') bodyStats[userId].gender = null;
+    if (typeof bodyStats[userId].age === 'undefined') bodyStats[userId].age = null;
+
     return bodyStats[userId];
+}
+
+// 1 реальный день = 1 год возраста ребёнка (та же логика ускорения времени, что у беременности)
+function getChildAge(child) {
+    const daysPassed = (Date.now() - child.born) / (24 * 60 * 60 * 1000);
+    return Math.max(0, Math.floor(daysPassed));
 }
 
 
@@ -822,8 +830,10 @@ setInterval(async () => {
             if (!children[familyKey]) children[familyKey] = [];
 
             const name = RANDOM_NAMES[Math.floor(Math.random() * RANDOM_NAMES.length)];
+            const gender = Math.random() < 0.5 ? 'male' : 'female';
             children[familyKey].push({
                 name,
+                gender,
                 born: Date.now(),
                 stage: 'baby',
                 iq: 100,
@@ -841,7 +851,8 @@ setInterval(async () => {
             try {
                 const guild = await client.guilds.fetch(GUILD_ID);
                 const channel = await guild.channels.fetch(currentVoiceChannelId);
-                // Отправим в тот же текстовый канал, где сидит бот в войсе — если нет текстового, просто пропустим
+                const genderEmoji = gender === 'male' ? '👦' : '👧';
+                channel.send(`👶 **Роды!** У <@${userId}> и <@${pregnancy.partnerId}> родил${gender === 'male' ? 'ся' : 'ась'} ${genderEmoji} **${name}**! Поздравляем!`).catch(() => {});
             } catch (e) {}
 
             console.log(`👶 Роды: <@${userId}> и <@${pregnancy.partnerId}> — родился(ась) ${name}`);
@@ -2018,7 +2029,9 @@ client.on('messageCreate', async (message) => {
     const satiety = typeof c.satiety === 'number' ? c.satiety : 100;
     const happiness = typeof c.happiness === 'number' ? c.happiness : 100;
     const wish = c.desire ? ` (🔥 Хочет: ${MARKET_ITEMS.find(i => i.id === c.desire)?.name || c.desire})` : '';
-    return `👶 **${c.name}** — Ст.: ${c.stage}, IQ: ${c.iq}, Вн.: ${c.appearance} | 🍖 Сытость: [${satiety}/100] • ❤️ Счастье: [${happiness}/100]${wish}`;
+    const genderEmoji = c.gender === 'male' ? '👦' : c.gender === 'female' ? '👧' : '👶';
+    const age = getChildAge(c);
+    return `${genderEmoji} **${c.name}** — ${age} г., Ст.: ${c.stage}, IQ: ${c.iq}, Вн.: ${c.appearance} | 🍖 Сытость: [${satiety}/100] • ❤️ Счастье: [${happiness}/100]${wish}`;
 }).join('\n')}`;
 
         } else {
@@ -2040,7 +2053,7 @@ client.on('messageCreate', async (message) => {
         const child = familyChildren.find(c => c.name.toLowerCase() === childName.toLowerCase());
         if (!child) return message.reply('Не нашёл ребёнка с таким именем.');
         const item = MARKET_ITEMS.find(i => i.id === itemId);
-        if (!item || (item.category !== 'food' && item.category !== 'junk' && item.category !== 'basic')) return message.reply('Это не еда.');
+        if (!item || (item.category !== 'food' && item.category !== 'junk' && item.category !== 'basic' && item.category !== 'gym')) return message.reply('Это не еда.');
         const inv = getGeneralInventory(message.author.id);
         if (!inv[itemId] || inv[itemId] <= 0) return message.reply(`У тебя нет ${item.name}.`);
         inv[itemId]--;
@@ -2315,14 +2328,20 @@ client.on('messageCreate', async (message) => {
         if (isKindergarten) {
             child.stage = 'kindergarten';
             child.iq = Math.min(200, (child.iq || 100) + 3);
-            message.reply(`🏫 ${child.name} пошёл(шла) в садик! IQ: ${child.iq}`);
+            if (typeof child.happiness !== 'number') child.happiness = 80;
+            child.happiness = Math.min(100, child.happiness + 5);
+            message.reply(`🏫 ${child.name} пошёл(шла) в садик! IQ: ${child.iq}, счастье: [${child.happiness}/100]`);
         } else if (isSchool) {
             child.stage = 'school';
             child.iq = Math.min(200, (child.iq || 100) + 5);
-            message.reply(`📚 ${child.name} пошёл(шла) в школу! IQ: ${child.iq}`);
+            if (typeof child.happiness !== 'number') child.happiness = 80;
+            child.happiness = Math.min(100, child.happiness + 5);
+            message.reply(`📚 ${child.name} пошёл(шла) в школу! IQ: ${child.iq}, счастье: [${child.happiness}/100]`);
         } else {
+            if (typeof child.happiness !== 'number') child.happiness = 80;
             child.appearance = Math.min(200, (child.appearance || 100) + 2);
-            message.reply(`🚶 Прогулка с ${child.name} прошла отлично! Настроение и внешность улучшились.`);
+            child.happiness = Math.min(100, child.happiness + 15);
+            message.reply(`🚶 Прогулка с ${child.name} прошла отлично! Счастье: [${child.happiness}/100], внешность: ${child.appearance}`);
         }
 
         saveLists();
@@ -2332,16 +2351,39 @@ client.on('messageCreate', async (message) => {
     if (message.content.startsWith('!weight')) {
         const target = message.mentions.users.first() || message.author;
         const body = getBodyStats(target.id);
+        const genderText = body.gender === 'male' ? '👨 Мужской' : body.gender === 'female' ? '👩 Женский' : 'не указан (`!setinfo <возраст> <male/female>`)';
 
         message.reply(
             `⚖️ **Параметры ${target.username}**\n\n` +
+            `Пол: ${genderText}\n` +
+            `Возраст: ${body.age !== null ? body.age + ' лет' : 'не указан'}\n\n` +
             `Вес: ${body.weight} кг\n` +
             `💪 Грудь: ${body.chest}\n` +
             `💪 Руки: ${body.arms}\n` +
-            `🦵 Ноги: ${body.legs}`+
-            `🏃 Кардио: ${body.cardio}`+ // <-- Добавили вывод кардио
+            `🦵 Ноги: ${body.legs}\n` +
+            `🏃 Кардио: ${body.cardio}\n` +
             `🍖 Сытость: ${body.satiety}/100`
         );
+        return;
+    }
+
+    // ---- !setinfo <возраст> <male/female> ----
+    if (message.content.startsWith('!setinfo')) {
+        const args = message.content.split(' ');
+        const age = parseInt(args[1]);
+        const genderInput = (args[2] || '').toLowerCase();
+
+        if (!age || age < 1 || age > 120 || !['male', 'female'].includes(genderInput)) {
+            message.reply('Напиши так: `!setinfo 25 male` или `!setinfo 30 female`');
+            return;
+        }
+
+        const body = getBodyStats(message.author.id);
+        body.age = age;
+        body.gender = genderInput;
+        saveLists();
+
+        message.reply(`✅ Обновлено: возраст ${age}, пол ${genderInput === 'male' ? '👨 мужской' : '👩 женский'}`);
         return;
     }
 
@@ -2351,7 +2393,7 @@ client.on('messageCreate', async (message) => {
         const itemId = args[1];
 
         const item = MARKET_ITEMS.find(i => i.id === itemId);
-        if (!item || (item.category !== 'food' && item.category !== 'junk' && item.category !== 'basic')) {
+        if (!item || (item.category !== 'food' && item.category !== 'junk' && item.category !== 'basic' && item.category !== 'gym')) {
             message.reply('Это не еда. Напиши `!buylist`, чтобы увидеть съедобные предметы.');
             return;
         }
@@ -2365,7 +2407,7 @@ client.on('messageCreate', async (message) => {
         inv[itemId]--;
 
         const body = getBodyStats(message.author.id);
-        const weightGain = item.category === 'junk' ? 3 : item.category === 'basic' ? 0.5 : 1.5;
+        const weightGain = item.category === 'junk' ? 3 : item.category === 'basic' ? 0.5 : item.category === 'gym' ? 0.8 : 1.5;
         body.weight += weightGain;
         body.satiety = Math.min(100, body.satiety + 30);
 
@@ -2375,7 +2417,7 @@ client.on('messageCreate', async (message) => {
         if (body.weight > WEIGHT_MAX) {
             message.reply(`💀 ${message.author} умер(ла) от ожирения (вес: ${Math.round(body.weight)} кг). Возрождение с базовыми параметрами...`);
             body.weight = WEIGHT_DEFAULT;
-            body.chest = 10; body.arms = 10; body.legs = 10;
+            body.chest = 10; body.arms = 10; body.legs = 10; body.cardio = 10; body.satiety = 100;
             setBalance(message.author.id, Math.floor(getBalance(message.author.id) / 2));
             saveLists();
             return;
@@ -2445,7 +2487,7 @@ client.on('messageCreate', async (message) => {
         if (body.weight < WEIGHT_MIN) {
             message.reply(`💀 ${message.author} умер(ла) от истощения в спортзале (вес: ${Math.round(body.weight)} кг). Возрождение с базовыми параметрами...`);
             body.weight = WEIGHT_DEFAULT;
-            body.chest = 10; body.arms = 10; body.legs = 10; body.cardio = 10;
+            body.chest = 10; body.arms = 10; body.legs = 10; body.cardio = 10; body.satiety = 100;
             setBalance(userId, Math.floor(getBalance(userId) / 2));
             saveLists();
             // Сбрасываем тренировки при смерти
@@ -2712,15 +2754,60 @@ client.on('messageCreate', async (message) => {
 
         const sorted = [...inv].sort((a, b) => b.price - a.price);
         const totalValue = inv.reduce((sum, s) => sum + s.price, 0);
+        const PAGE_SIZE = 10;
+        const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
+        let currentPage = 0;
 
-        let text = `**🎒 Инвентарь ${target.username}** (всего: ${totalValue} 🪙)\n\n`;
-        sorted.slice(0, 20).forEach((skin) => {
-            const realIndex = inv.indexOf(skin);
-            text += `${realIndex + 1}. ${skin.rarityName} **${skin.name}** — ${skin.price} 🪙\n`;
+        function buildInventoryPage(page) {
+            const start = page * PAGE_SIZE;
+            const pageItems = sorted.slice(start, start + PAGE_SIZE);
+
+            let text = `**🎒 Инвентарь ${target.username}** (всего: ${totalValue} 🪙)\n`;
+            text += `Страница ${page + 1} из ${totalPages}\n\n`;
+            pageItems.forEach((skin) => {
+                const realIndex = inv.indexOf(skin);
+                text += `${realIndex + 1}. ${skin.rarityName} **${skin.name}** — ${skin.price} 🪙\n`;
+            });
+            return text;
+        }
+
+        function buildInventoryRow(page) {
+            return new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('inv_prev').setLabel('⬅️ Назад').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+                new ButtonBuilder().setCustomId('inv_next').setLabel('Вперёд ➡️').setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1)
+            );
+        }
+
+        if (totalPages <= 1) {
+            message.reply(buildInventoryPage(0));
+            return;
+        }
+
+        const invMsg = await message.reply({
+            content: buildInventoryPage(currentPage),
+            components: [buildInventoryRow(currentPage)]
         });
-        if (inv.length > 20) text += `\n...и ещё ${inv.length - 20}`;
 
-        message.reply(text);
+        const collector = invMsg.createMessageComponentCollector({
+            componentType: ComponentType.Button,
+            time: 5 * 60 * 1000,
+            filter: (i) => i.user.id === message.author.id
+        });
+
+        collector.on('collect', async (interaction) => {
+            if (interaction.customId === 'inv_prev') currentPage = Math.max(0, currentPage - 1);
+            if (interaction.customId === 'inv_next') currentPage = Math.min(totalPages - 1, currentPage + 1);
+
+            await interaction.update({
+                content: buildInventoryPage(currentPage),
+                components: [buildInventoryRow(currentPage)]
+            });
+        });
+
+        collector.on('end', () => {
+            invMsg.edit({ components: [] }).catch(() => {});
+        });
+
         return;
     }
 
@@ -3083,11 +3170,18 @@ client.on('messageCreate', async (message) => {
         let successCount = 0;
         let failCount = 0;
         let upgradedSkins = [];
+        let valueBefore = 0;
+        let valueAfter = 0;
+        let successLog = [];
+        let failLog = [];
 
         toUpgrade.forEach(skin => {
+            valueBefore += skin.price;
+
             if (Math.random() < chance) {
                 successCount++;
                 const newPrice = Math.floor(skin.price * multiplier);
+                valueAfter += newPrice;
                 let newRarity = RARITIES[0];
                 for (const r of RARITIES) {
                     if (newPrice >= r.minPrice) newRarity = r;
@@ -3099,8 +3193,10 @@ client.on('messageCreate', async (message) => {
                     rarityName: newRarity.name,
                     obtainedAt: Date.now()
                 });
+                successLog.push(`✅ ${skin.name} (${skin.price} 🪙) → ${newPrice} 🪙`);
             } else {
                 failCount++;
+                failLog.push(`🔥 ${skin.name} (${skin.price} 🪙) — потерян`);
             }
         });
 
@@ -3109,7 +3205,24 @@ client.on('messageCreate', async (message) => {
         inventory[message.author.id] = [...otherSkins, ...upgradedSkins];
         saveLists();
 
-        message.reply(`🎯 **Массовый апгрейд [×${multiplier}] выполнен!**\n🔥 Сгорело скинов: **${failCount}** шт.\n✅ Успешно улучшено: **${successCount}** шт.\nИнвентарь обновлен! Посмотреть: \`!inventory\``);
+        const netChange = valueAfter - valueBefore;
+        const isProfit = netChange > 0;
+
+        let detailsText = '';
+        const allLog = [...successLog, ...failLog];
+        detailsText += allLog.slice(0, 15).join('\n');
+        if (allLog.length > 15) detailsText += `\n...и ещё ${allLog.length - 15} скинов`;
+
+        message.reply(
+            `🎯 **Массовый апгрейд [×${multiplier}] выполнен!**\n\n` +
+            `${detailsText}\n\n` +
+            `🔥 Сгорело: **${failCount}** шт.\n` +
+            `✅ Улучшено: **${successCount}** шт.\n\n` +
+            `💰 Стоимость инвентаря до: ${valueBefore} 🪙\n` +
+            `💰 Стоимость инвентаря после: ${valueAfter} 🪙\n` +
+            `${isProfit ? '📈 В плюсе на' : '📉 В минусе на'} **${Math.abs(netChange)}** 🪙\n\n` +
+            `Посмотреть инвентарь: \`!inventory\``
+        );
         return;
     }
 
