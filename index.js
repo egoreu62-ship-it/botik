@@ -374,11 +374,19 @@ const CASCADE_MAX_STEPS = 9; // Предохранитель от зависан
 
 // Таблица выплат в зависимости от размера кластера (от 5, 10, 15 и 25+ символов)
 const CLUSTER_PAYOUTS = {
-    '🍒': { 5: 0.03, 10: 0.08, 15: 0.18, 25: 0.7 },
-    '🍋': { 5: 0.05, 10: 0.12, 15: 0.26, 25: 1.2 },
-    '🔔': { 5: 0.08, 10: 0.18, 15: 0.44, 25: 2.0 },
-    '💎': { 5: 0.14, 10: 0.36, 15: 0.9, 25: 3.2 },
-    '7️⃣': { 5: 0.26, 10: 0.7, 15: 1.8, 25: 8.0 }
+    '🍒': { 5: 0.16, 10: 0.43, 15: 0.97, 25: 3.78 },
+    '🍋': { 5: 0.27, 10: 0.65, 15: 1.40, 25: 6.48 },
+    '🔔': { 5: 0.43, 10: 0.97, 15: 2.38, 25: 10.80 },
+    '💎': { 5: 0.76, 10: 1.94, 15: 4.86, 25: 17.28 },
+    '7️⃣': { 5: 1.40, 10: 3.78, 15: 9.72, 25: 43.20 }
+};
+// Отдельная таблица для !casino bonus — выше выплаты, т.к. вход стоит ×20 от ставки
+const BONUS_CLUSTER_PAYOUTS = {
+    '🍒': { 5: 0.35, 10: 0.93, 15: 2.09, 25: 8.12 },
+    '🍋': { 5: 0.58, 10: 1.39, 15: 3.02, 25: 13.92 },
+    '🔔': { 5: 0.93, 10: 2.09, 15: 5.10, 25: 23.20 },
+    '💎': { 5: 1.62, 10: 4.18, 15: 10.44, 25: 37.12 },
+    '7️⃣': { 5: 3.02, 10: 8.12, 15: 20.88, 25: 92.80 }
 };
 
 function generateSugarSymbol() {
@@ -413,30 +421,21 @@ function formatSugarGrid(grid) {
     return grid.map(row => row.join(' | ')).join('\n');
 }
 
-function getPayoutMultiplier(symbol, clusterSize) {
-    // Явно приводим входящий аргумент к строке и убираем лишние пробелы
+function getPayoutMultiplier(symbol, clusterSize, payoutsTable = CLUSTER_PAYOUTS) {
     let symStr = String(symbol).trim(); 
-    
-    // Список разрешенных эмодзи в таблице CLUSTER_PAYOUTS
     const allowed = ['🍒', '🍋', '🔔', '💎', '7️⃣'];
-    
-    // Если символ пустой или не из списка, принудительно ставим вишню
-    if (!allowed.includes(symStr)) {
-        symStr = '🍒';
-    }
+    if (!allowed.includes(symStr)) symStr = '🍒';
 
-    const tiers = CLUSTER_PAYOUTS[symStr];
+    const tiers = payoutsTable[symStr];
     if (!tiers) return 0.50;
 
     const thresholds = Object.keys(tiers).map(Number).sort((a, b) => b - a);
     for (const threshold of thresholds) {
         if (clusterSize >= threshold) return tiers[threshold];
     }
-    
     const minKey = Math.min(...thresholds);
     return tiers[minKey] || 0.50;
 }
-
 
     
     
@@ -3695,7 +3694,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
                 const size = cluster.length;
 
                 // Рассчитываем коэффициент выплат через функцию
-                const payoutMult = getPayoutMultiplier(sym, size);
+                const payoutMult = getPayoutMultiplier(sym, size, BONUS_CLUSTER_PAYOUTS);
                 
                 // ПРОВЕРКА 4: Перестраховка от undefined в множителе
                 const currentPayout = typeof payoutMult === 'number' ? payoutMult : 0.50;
