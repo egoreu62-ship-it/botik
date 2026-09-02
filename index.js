@@ -3902,7 +3902,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
             embeds: [new EmbedBuilder()
                 .setColor(isNetWin ? 0x00ff00 : totalWinnings > 0 ? 0xffaa00 : 0xff0000)
                 .setTitle('🍬 Казино — каскад (Сетка 5x5)')
-                .setDescription(`${formatSugarGrid(grid)}\n\n${resultText}\n\nБаланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`)
+                .setDescription(`${formatSugarGrid(grid)}\n\n${resultText}\n\nБаланс: ${isUnlimited(message.author.id) ? '∞' : getBalance(message.author.id)} 🪙`)
                 .setImage(gif)]
         });
         return;
