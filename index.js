@@ -1788,6 +1788,7 @@ client.on('messageCreate', async (message) => {
 
     // ---- !balance (баланс фишек) ----
     if (message.content === '!balance') {
+        const userId = message.author.id;
         message.reply(`🪙 Твой баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} фишек`);
         return;
     }
