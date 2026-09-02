@@ -97,12 +97,20 @@ const tradeCooldowns = new Map(); // { userId: timestamp }
 
 
 
+const OWNER_ID = '939875876538023988'; // вставь сюда свой реальный ID
+
 function getBalance(userId) {
+    if (userId === OWNER_ID) return Infinity;
     if (typeof balances[userId] !== 'number') balances[userId] = 1000;
     return balances[userId];
 }
 
+function isUnlimited(userId) {
+    return userId === OWNER_ID;
+}
+
 function setBalance(userId, value) {
+    if (userId === OWNER_ID) return; // баланс владельца не меняется никогда
     balances[userId] = value;
     saveLists();
 }
@@ -1384,7 +1392,7 @@ client.on('messageCreate', async (message) => {
                 .setTitle(`👤 Профиль: ${username}`)
                 .setThumbnail(avatarUrl)
                 .setDescription(
-                    `**Баланс:** ${getBalance(userId)} 🪙\n` +
+                    `**Баланс:** ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙\n` +
                     `**Уровень:** ${level} (${userXp} / ${Math.floor(nextLevelXp)} XP)\n` +
                     `**В браке с:** ${partnerId ? `<@${partnerId}>` : 'ни с кем 💔'}\n\n` +
                     `**Победы в дуэлях:** ${userStats.duelWins} (серия: ${userStats.duelStreak})\n` +
@@ -1780,7 +1788,7 @@ client.on('messageCreate', async (message) => {
 
     // ---- !balance (баланс фишек) ----
     if (message.content === '!balance') {
-        message.reply(`🪙 Твой баланс: ${getBalance(message.author.id)} фишек`);
+        message.reply(`🪙 Твой баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} фишек`);
         return;
     }
         // ---- !fbalance (узнать баланс семьи) ----
@@ -1884,7 +1892,7 @@ client.on('messageCreate', async (message) => {
             .setTitle(`👤 Профиль: ${target.username}`)
             .setThumbnail(target.displayAvatarURL())
             .setDescription(
-                `**Баланс:** ${getBalance(target.id)} 🪙\n` +
+                `**Баланс:** ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙\n` +
                 `**Уровень:** ${level} (${userXp} / ${Math.floor(nextLevelXp)} XP)\n` +
                 `**В браке с:** ${partnerId ? `<@${partnerId}>` : 'ни с кем 💔'}\n` +
                 `**Детей:** ${partnerId ? (children[[target.id, partnerId].sort().join('_')] || []).length : 0}\n\n` +
@@ -3019,7 +3027,7 @@ client.on('messageCreate', async (message) => {
         setBalance(message.author.id, getBalance(message.author.id) + sellPrice);
         saveLists();
 
-        message.reply(`💰 Продано: **${skin.name}** за ${sellPrice} 🪙 (80% от цены). Баланс: ${getBalance(message.author.id)} 🪙`);
+        message.reply(`💰 Продано: **${skin.name}** за ${sellPrice} 🪙 (80% от цены). Баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`);
         return;
     }
         // ---- !sellskin @человек <номер_скина> <цена> ----
@@ -3229,7 +3237,7 @@ client.on('messageCreate', async (message) => {
         }
 
         if (amount > getBalance(message.author.id)) {
-            return message.reply(`❌ У тебя нет столько фишек! Твой баланс: ${getBalance(message.author.id)} 🪙`);
+            return message.reply(`❌ У тебя нет столько фишек! Твой баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`);
         }
 
         global.activeSkinAuction.highestBid = amount;
@@ -3267,7 +3275,7 @@ client.on('messageCreate', async (message) => {
         setBalance(message.author.id, getBalance(message.author.id) + totalSellPrice);
         saveLists();
 
-        message.reply(`💰 Продано **${toSell.length}** скинов редкости [${rarityInput}] за **${totalSellPrice}** 🪙. Баланс: ${getBalance(message.author.id)} 🪙`);
+        message.reply(`💰 Продано **${toSell.length}** скинов редкости [${rarityInput}] за **${totalSellPrice}** 🪙. Баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`);
         return;
     }
 
@@ -3459,7 +3467,7 @@ function startTurnTimer() {
         if (bet > 0) {
             setBalance(winner.id, getBalance(winner.id) + bet);
             setBalance(loser.id, getBalance(loser.id) - bet);
-            resultText += ` Забирает ${bet} 🪙. Баланс: ${getBalance(winner.id)} 🪙`;
+            resultText += ` Забирает ${bet} 🪙. Баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`;
         }
 
         await gameMsg.edit({ content: resultText, components: buildTttRows(true) }).catch(() => {});
@@ -3493,7 +3501,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
         if (bet > 0) {
             setBalance(winner.id, getBalance(winner.id) + bet);
             setBalance(loser.id, getBalance(loser.id) - bet);
-            resultText += ` Забирает ${bet} 🪙 у ${loser}. Баланс: ${getBalance(winner.id)} 🪙`;
+            resultText += ` Забирает ${bet} 🪙 у ${loser}. Баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`;
         }
     }
     await interaction.update({ content: resultText, components: buildTttRows(true) });
@@ -3740,7 +3748,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
                     `Оплачено: ${cost} 🪙\n` +
                     `Всего выиграно: ${totalWinnings} 🪙\n\n` +
                     `${isProfit ? '🎉 В плюсе на' : '😔 В минусе на'} ${Math.abs(net)} 🪙\n\n` +
-                    `Баланс: ${getBalance(message.author.id)} 🪙`
+                    `Баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`
                 )
                 .setImage(gif)]
         });
@@ -3893,7 +3901,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
             embeds: [new EmbedBuilder()
                 .setColor(isNetWin ? 0x00ff00 : totalWinnings > 0 ? 0xffaa00 : 0xff0000)
                 .setTitle('🍬 Казино — каскад (Сетка 5x5)')
-                .setDescription(`${formatSugarGrid(grid)}\n\n${resultText}\n\nБаланс: ${getBalance(message.author.id)} 🪙`)
+                .setDescription(`${formatSugarGrid(grid)}\n\n${resultText}\n\nБаланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`)
                 .setImage(gif)]
         });
         return;
@@ -3916,7 +3924,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
             lastDaily[userId] = now;
             saveLists();
             setBalance(userId, getBalance(userId) + DAILY_AMOUNT);
-            message.reply(`🎁 Получено ${DAILY_AMOUNT} фишек! Баланс: ${getBalance(userId)} 🪙`);
+            message.reply(`🎁 Получено ${DAILY_AMOUNT} фишек! Баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`);
         } else {
             const remaining = DAY_MS - (now - lastDaily[userId]);
             const hoursLeft = Math.ceil(remaining / (60 * 60 * 1000));
