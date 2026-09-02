@@ -3027,7 +3027,7 @@ client.on('messageCreate', async (message) => {
         setBalance(message.author.id, getBalance(message.author.id) + sellPrice);
         saveLists();
 
-        message.reply(`💰 Продано: **${skin.name}** за ${sellPrice} 🪙 (80% от цены). Баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`);
+        message.reply(`💰 Продано: **${skin.name}** за ${sellPrice} 🪙 (80% от цены). Баланс: ${isUnlimited(message.author.id) ? '∞' : getBalance(message.author.id)} 🪙`);
         return;
     }
         // ---- !sellskin @человек <номер_скина> <цена> ----
