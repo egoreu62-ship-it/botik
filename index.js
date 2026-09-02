@@ -914,6 +914,7 @@ const MENTION_REPLIES = [
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
+    const userId = message.author.id; 
 
     // ---- Заблокированные пользователи (управляется через веб-панель) ----
     if (blacklist.includes(message.author.id)) {
