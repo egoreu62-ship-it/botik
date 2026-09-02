@@ -45,6 +45,7 @@ const client = new Client({
 const fs = require('fs');
 
 const GUILD_ID = process.env.GUILD_ID;
+const RANDOM_NAMES = ['Саша', 'Женя', 'Максим', 'София', 'Артём', 'Вика', 'Дима', 'Настя', 'Игорь', 'Лера', "Арина"];
 let currentVoiceChannelId = process.env.VOICE_CHANNEL_ID;
 const TOKEN = process.env.TOKEN;
 
@@ -1280,6 +1281,7 @@ client.on('messageCreate', async (message) => {
                     '`!sex` — завести ребенка (шанс 10%, лимит попыток растет от кардио!)\n' +
                     '`!pregnancy [@человек]` — статус беременности и размер плода\n' +
                     '`!abort` — прервать беременность (разрешено строго до 12 недель!)\n' +
+                    '`!givebirth` — мини-игра для родов (с 38 недели)\n' +
                     '`!feed <имя> <предмет>` — покормить ребенка едой (пополняет шкалу сытости)\n' +
                     '`!givekid <имя> <предмет>` — дать ребенку вещь/игрушку (выполнить его каприз)\n' +
                     '`!breastfeed <имя>` — бесплатно покормить младенца грудью (только маме, КД: 15 мин)\n' +
@@ -2534,8 +2536,7 @@ client.on('messageCreate', async (message) => {
        
        
        // ---- !sex (10% шанс на ребёнка, КД зависит от кардио) ----
-    const RANDOM_NAMES = ['Саша', 'Женя', 'Максим', 'София', 'Артём', 'Вика', 'Дима', 'Настя', 'Игорь', 'Лера', "Арина"];
-
+    
     if (message.content === '!sex') {
         const partnerId = marriages[message.author.id];
 
@@ -2636,6 +2637,127 @@ client.on('messageCreate', async (message) => {
         saveLists();
 
         message.reply('💔 Беременность успешно прервана на раннем сроке.');
+        return;
+    }
+
+        // ---- !givebirth (мини-игра родов с 38 недели) ----
+    if (message.content === '!givebirth') {
+        const pregnancy = pregnancies[message.author.id];
+
+        if (!pregnancy) {
+            message.reply('Ты не беременна(ен) 🤷');
+            return;
+        }
+
+        const currentWeek = getPregnancyWeek(pregnancy);
+        if (currentWeek < 38) {
+            message.reply(`❌ Ещё рано! Текущий срок: ${currentWeek} нед. Роды доступны с 38 недели.`);
+            return;
+        }
+
+        const COLOR_POOL = [
+            { id: 'red', label: '🔴', name: 'Красный' },
+            { id: 'yellow', label: '🟡', name: 'Жёлтый' },
+            { id: 'green', label: '🟢', name: 'Зелёный' },
+            { id: 'blue', label: '🔵', name: 'Синий' }
+        ];
+        const ROUNDS_TO_WIN = 5;
+        const ROUND_TIME_MS = 5000;
+
+        function pickTargetColor() {
+            return COLOR_POOL[Math.floor(Math.random() * COLOR_POOL.length)];
+        }
+
+        function buildColorRow() {
+            const row = new ActionRowBuilder();
+            for (const color of COLOR_POOL) {
+                row.addComponents(
+                    new ButtonBuilder().setCustomId('birth_' + color.id).setLabel(color.label).setStyle(ButtonStyle.Secondary)
+                );
+            }
+            return row;
+        }
+
+        let round = 0;
+        let target = pickTargetColor();
+
+        const gameMsg = await message.reply({
+            embeds: [new EmbedBuilder()
+                .setColor(0xffc0cb)
+                .setTitle('🤰 Роды начинаются!')
+                .setDescription(`Раунд 1/${ROUNDS_TO_WIN}\nНажми на кнопку: **${target.name}** ${target.label}`)],
+            components: [buildColorRow()]
+        });
+
+        const collector = gameMsg.createMessageComponentCollector({
+            componentType: ComponentType.Button,
+            time: ROUND_TIME_MS * ROUNDS_TO_WIN + 5000,
+            filter: (i) => i.user.id === message.author.id
+        });
+
+        collector.on('collect', async (interaction) => {
+            const pickedColorId = interaction.customId.replace('birth_', '');
+
+            if (pickedColorId !== target.id) {
+                collector.stop('fail');
+                await interaction.update({
+                    embeds: [new EmbedBuilder()
+                        .setColor(0xff0000)
+                        .setTitle('😖 Что-то пошло не так...')
+                        .setDescription(`Не тот цвет на раунде ${round + 1}. Попробуй ещё раз через \`!givebirth\`.`)],
+                    components: []
+                });
+                return;
+            }
+
+            round++;
+
+            if (round >= ROUNDS_TO_WIN) {
+                collector.stop('success');
+
+                const familyKey = [message.author.id, pregnancy.partnerId].sort().join('_');
+                if (!children[familyKey]) children[familyKey] = [];
+
+                const name = RANDOM_NAMES[Math.floor(Math.random() * RANDOM_NAMES.length)];
+                const gender = Math.random() < 0.5 ? 'male' : 'female';
+                children[familyKey].push({
+                    name, gender, born: Date.now(), stage: 'baby',
+                    iq: 100, appearance: 100, satiety: 100, happiness: 100,
+                    desire: null, desireExpires: 0
+                });
+
+                delete pregnancies[message.author.id];
+                saveLists();
+
+                const genderEmoji = gender === 'male' ? '👦' : '👧';
+                await interaction.update({
+                    embeds: [new EmbedBuilder()
+                        .setColor(0x00ff00)
+                        .setTitle('👶 Поздравляем!')
+                        .setDescription(`${message.author} успешно родил${gender === 'male' ? '' : 'а'}! Встречайте ${genderEmoji} **${name}**! 🎉`)],
+                    components: []
+                });
+                return;
+            }
+
+            target = pickTargetColor();
+            await interaction.update({
+                embeds: [new EmbedBuilder()
+                    .setColor(0xffc0cb)
+                    .setTitle('🤰 Роды продолжаются!')
+                    .setDescription(`Раунд ${round + 1}/${ROUNDS_TO_WIN}\nНажми на кнопку: **${target.name}** ${target.label}`)],
+                components: [buildColorRow()]
+            });
+        });
+
+        collector.on('end', (collected, reason) => {
+            if (reason === 'time') {
+                gameMsg.edit({
+                    embeds: [new EmbedBuilder().setColor(0x888888).setTitle('⌛ Время вышло').setDescription('Роды прерваны — слишком долго думал(а).')],
+                    components: []
+                }).catch(() => {});
+            }
+        });
         return;
     }
 
