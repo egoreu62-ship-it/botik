@@ -3251,6 +3251,7 @@ client.on('messageCreate', async (message) => {
 
         // ---- !sellall <редкость> ----
     if (message.content.startsWith('!sellall')) {
+        const userId = message.author.id;
         const args = message.content.split(' ');
         const rarityInput = args[1]?.toLowerCase();
 
