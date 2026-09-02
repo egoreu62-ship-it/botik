@@ -1536,9 +1536,9 @@ client.on('messageCreate', async (message) => {
         });
 
         collector.on('collect', async (interaction) => {
-            const userId = message.author.id;
-            const username = message.author.username;
-            const avatarUrl = message.author.displayAvatarURL();
+            const userId = interaction.user.id; 
+            const username = interaction.user.username;
+            const avatarUrl = interaction.user.displayAvatarURL();
 
             if (interaction.customId === 'menu_back') {
                 await interaction.update({
@@ -1892,7 +1892,7 @@ client.on('messageCreate', async (message) => {
             .setTitle(`👤 Профиль: ${target.username}`)
             .setThumbnail(target.displayAvatarURL())
             .setDescription(
-                `**Баланс:** ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙\n` +
+                `**Баланс:** ${isUnlimited(target.id) ? '∞' : getBalance(target.id)} 🪙\n` +
                 `**Уровень:** ${level} (${userXp} / ${Math.floor(nextLevelXp)} XP)\n` +
                 `**В браке с:** ${partnerId ? `<@${partnerId}>` : 'ни с кем 💔'}\n` +
                 `**Детей:** ${partnerId ? (children[[target.id, partnerId].sort().join('_')] || []).length : 0}\n\n` +
@@ -3237,7 +3237,7 @@ client.on('messageCreate', async (message) => {
         }
 
         if (amount > getBalance(message.author.id)) {
-            return message.reply(`❌ У тебя нет столько фишек! Твой баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`);
+            return message.reply(`❌ У тебя нет столько фишек! Твой баланс: ${isUnlimited(message.author.id) ? '∞' : getBalance(message.author.id)} 🪙`);
         }
 
         global.activeSkinAuction.highestBid = amount;
@@ -3276,7 +3276,7 @@ client.on('messageCreate', async (message) => {
         setBalance(message.author.id, getBalance(message.author.id) + totalSellPrice);
         saveLists();
 
-        message.reply(`💰 Продано **${toSell.length}** скинов редкости [${rarityInput}] за **${totalSellPrice}** 🪙. Баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`);
+        message.reply(`💰 Продано **${toSell.length}** скинов редкости [${rarityInput}] за **${totalSellPrice}** 🪙. Баланс: ${isUnlimited(message.author.id) ? '∞' : getBalance(message.author.id)} 🪙`);
         return;
     }
 
