@@ -914,7 +914,6 @@ const MENTION_REPLIES = [
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
-    const userId = message.author.id; 
 
     // ---- Заблокированные пользователи (управляется через веб-панель) ----
     if (blacklist.includes(message.author.id)) {
@@ -1537,9 +1536,9 @@ client.on('messageCreate', async (message) => {
         });
 
         collector.on('collect', async (interaction) => {
-            const userId = interaction.user.id; 
-            const username = interaction.user.username;
-            const avatarUrl = interaction.user.displayAvatarURL();
+            const userId = message.author.id;
+            const username = message.author.username;
+            const avatarUrl = message.author.displayAvatarURL();
 
             if (interaction.customId === 'menu_back') {
                 await interaction.update({
@@ -1893,7 +1892,7 @@ client.on('messageCreate', async (message) => {
             .setTitle(`👤 Профиль: ${target.username}`)
             .setThumbnail(target.displayAvatarURL())
             .setDescription(
-                `**Баланс:** ${isUnlimited(target.id) ? '∞' : getBalance(target.id)} 🪙\n` +
+                `**Баланс:** ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙\n` +
                 `**Уровень:** ${level} (${userXp} / ${Math.floor(nextLevelXp)} XP)\n` +
                 `**В браке с:** ${partnerId ? `<@${partnerId}>` : 'ни с кем 💔'}\n` +
                 `**Детей:** ${partnerId ? (children[[target.id, partnerId].sort().join('_')] || []).length : 0}\n\n` +
@@ -3028,7 +3027,7 @@ client.on('messageCreate', async (message) => {
         setBalance(message.author.id, getBalance(message.author.id) + sellPrice);
         saveLists();
 
-        message.reply(`💰 Продано: **${skin.name}** за ${sellPrice} 🪙 (80% от цены). Баланс: ${isUnlimited(message.author.id) ? '∞' : getBalance(message.author.id)} 🪙`);
+        message.reply(`💰 Продано: **${skin.name}** за ${sellPrice} 🪙 (80% от цены). Баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`);
         return;
     }
         // ---- !sellskin @человек <номер_скина> <цена> ----
@@ -3238,7 +3237,7 @@ client.on('messageCreate', async (message) => {
         }
 
         if (amount > getBalance(message.author.id)) {
-            return message.reply(`❌ У тебя нет столько фишек! Твой баланс: ${isUnlimited(message.author.id) ? '∞' : getBalance(message.author.id)} 🪙`);
+            return message.reply(`❌ У тебя нет столько фишек! Твой баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`);
         }
 
         global.activeSkinAuction.highestBid = amount;
@@ -3277,7 +3276,7 @@ client.on('messageCreate', async (message) => {
         setBalance(message.author.id, getBalance(message.author.id) + totalSellPrice);
         saveLists();
 
-        message.reply(`💰 Продано **${toSell.length}** скинов редкости [${rarityInput}] за **${totalSellPrice}** 🪙. Баланс: ${isUnlimited(message.author.id) ? '∞' : getBalance(message.author.id)} 🪙`);
+        message.reply(`💰 Продано **${toSell.length}** скинов редкости [${rarityInput}] за **${totalSellPrice}** 🪙. Баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`);
         return;
     }
 
@@ -3750,7 +3749,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
                     `Оплачено: ${cost} 🪙\n` +
                     `Всего выиграно: ${totalWinnings} 🪙\n\n` +
                     `${isProfit ? '🎉 В плюсе на' : '😔 В минусе на'} ${Math.abs(net)} 🪙\n\n` +
-                    `Баланс: ${isUnlimited(message.author.id) ? '∞' : getBalance(message.author.id)} 🪙`
+                    `Баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`
                 )
                 .setImage(gif)]
         });
@@ -3903,7 +3902,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
             embeds: [new EmbedBuilder()
                 .setColor(isNetWin ? 0x00ff00 : totalWinnings > 0 ? 0xffaa00 : 0xff0000)
                 .setTitle('🍬 Казино — каскад (Сетка 5x5)')
-                .setDescription(`${formatSugarGrid(grid)}\n\n${resultText}\n\nБаланс: ${isUnlimited(message.author.id) ? '∞' : getBalance(message.author.id)} 🪙`)
+                .setDescription(`${formatSugarGrid(grid)}\n\n${resultText}\n\nБаланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`)
                 .setImage(gif)]
         });
         return;
@@ -3936,42 +3935,36 @@ startTurnTimer(); // запускаем таймер на самый первы�
     }
 
 
-      // ---- !promo <код> (С поддержкой бесконечного выпуска новых кодов) ----
-    const PROMO_CODE = '4242'; // <-- ПРОСТО МЕНЯЙ НАЗВАНИЕ ЗДЕСЬ ДЛЯ НОВЫХ КОДОВ
-    const PROMO_AMOUNT = 6767;      // Награда за активацию
+    // ---- !promo <код> ----
+const PROMO_CODE = 'pidor'; // придумай свой секретный код, например '67лет'
+const PROMO_AMOUNT = 6767;
 
-    if (message.content.startsWith('!promo')) {
-        const args = message.content.split(' ');
-        const enteredCode = args[1];
+if (message.content.startsWith('!promo')) {
+    const args = message.content.split(' ');
+    const enteredCode = args[1];
 
-        if (!enteredCode) {
-            message.reply('Напиши так: `!promo код`');
-            return;
-        }
-
-        if (enteredCode !== PROMO_CODE) {
-            message.reply('❌ Неверный промокод');
-            return;
-        }
-
-        // Создаем уникальный ключ активации: "название_IDюзера"
-        const promoKey = `${PROMO_CODE}_${message.author.id}`;
-
-        // Проверяем, активировал ли игрок ИМЕННО ЭТОТ промокод
-        if (redeemedPromo.includes(promoKey)) {
-            message.reply('❌ Ты уже активировал этот промокод!');
-            return;
-        }
-
-        // Засчитываем активацию конкретного промокода
-        redeemedPromo.push(promoKey);
-        setBalance(message.author.id, getBalance(message.author.id) + PROMO_AMOUNT);
-        saveLists();
-
-        message.reply(`🎉 Промокод активирован! +${PROMO_AMOUNT} 🪙. Баланс: ${isUnlimited(message.author.id) ? '∞' : getBalance(message.author.id)} 🪙`);
+    if (!enteredCode) {
+        message.reply('Напиши так: `!promo код`');
         return;
     }
 
+    if (enteredCode !== PROMO_CODE) {
+        message.reply('❌ Неверный промокод');
+        return;
+    }
+
+    if (redeemedPromo.includes(message.author.id)) {
+        message.reply('❌ Ты уже активировал этот промокод');
+        return;
+    }
+
+    redeemedPromo.push(message.author.id);
+    setBalance(message.author.id, getBalance(message.author.id) + PROMO_AMOUNT);
+    saveLists();
+
+    message.reply(`🎉 Промокод активирован! +${PROMO_AMOUNT} 🪙. Баланс: ${getBalance(message.author.id)} 🪙`);
+    return;
+} 
 
     if (message.content === '!shop') {
         if (shopItems.length === 0) {
