@@ -3749,7 +3749,7 @@ startTurnTimer(); // запускаем таймер на самый первы�
                     `Оплачено: ${cost} 🪙\n` +
                     `Всего выиграно: ${totalWinnings} 🪙\n\n` +
                     `${isProfit ? '🎉 В плюсе на' : '😔 В минусе на'} ${Math.abs(net)} 🪙\n\n` +
-                    `Баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`
+                    `Баланс: ${isUnlimited(message.author.id) ? '∞' : getBalance(message.author.id)} 🪙`
                 )
                 .setImage(gif)]
         });
