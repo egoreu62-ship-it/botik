@@ -3935,36 +3935,42 @@ startTurnTimer(); // запускаем таймер на самый первы�
     }
 
 
-    // ---- !promo <код> ----
-const PROMO_CODE = '4242'; // придумай свой секретный код, например '67лет'
-const PROMO_AMOUNT = 6767;
+      // ---- !promo <код> (С поддержкой бесконечного выпуска новых кодов) ----
+    const PROMO_CODE = '4242'; // <-- ПРОСТО МЕНЯЙ НАЗВАНИЕ ЗДЕСЬ ДЛЯ НОВЫХ КОДОВ
+    const PROMO_AMOUNT = 6767;      // Награда за активацию
 
-if (message.content.startsWith('!promo')) {
-    const args = message.content.split(' ');
-    const enteredCode = args[1];
+    if (message.content.startsWith('!promo')) {
+        const args = message.content.split(' ');
+        const enteredCode = args[1];
 
-    if (!enteredCode) {
-        message.reply('Напиши так: `!promo код`');
+        if (!enteredCode) {
+            message.reply('Напиши так: `!promo код`');
+            return;
+        }
+
+        if (enteredCode !== PROMO_CODE) {
+            message.reply('❌ Неверный промокод');
+            return;
+        }
+
+        // Создаем уникальный ключ активации: "название_IDюзера"
+        const promoKey = `${PROMO_CODE}_${message.author.id}`;
+
+        // Проверяем, активировал ли игрок ИМЕННО ЭТОТ промокод
+        if (redeemedPromo.includes(promoKey)) {
+            message.reply('❌ Ты уже активировал этот промокод!');
+            return;
+        }
+
+        // Засчитываем активацию конкретного промокода
+        redeemedPromo.push(promoKey);
+        setBalance(message.author.id, getBalance(message.author.id) + PROMO_AMOUNT);
+        saveLists();
+
+        message.reply(`🎉 Промокод активирован! +${PROMO_AMOUNT} 🪙. Баланс: ${isUnlimited(message.author.id) ? '∞' : getBalance(message.author.id)} 🪙`);
         return;
     }
 
-    if (enteredCode !== PROMO_CODE) {
-        message.reply('❌ Неверный промокод');
-        return;
-    }
-
-    if (redeemedPromo.includes(message.author.id)) {
-        message.reply('❌ Ты уже активировал этот промокод');
-        return;
-    }
-
-    redeemedPromo.push(message.author.id);
-    setBalance(message.author.id, getBalance(message.author.id) + PROMO_AMOUNT);
-    saveLists();
-
-    message.reply(`🎉 Промокод активирован! +${PROMO_AMOUNT} 🪙. Баланс: ${getBalance(message.author.id)} 🪙`);
-    return;
-} 
 
     if (message.content === '!shop') {
         if (shopItems.length === 0) {
