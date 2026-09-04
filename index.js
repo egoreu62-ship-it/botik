@@ -1066,6 +1066,601 @@ async function runDarknessBonusSequence(menuMsg, session) {
     });
 }
 
+// ==== HOT FIESTA CASINO (третий вид слотов, отдельно от Sugar Rush и Darkness) ====
+// 5 барабанов x 3 ряда, 25 линий, Wild-пиньята со сложением множителей, Scatter на 1/3/5, Ante Bet, Sticky Roaming Wilds
+
+const HF_REELS = 5;
+const HF_ROWS = 3;
+
+// 25 классических линий выплат (индекс ряда 0-2 на каждом из 5 барабанов, слева направо)
+const HF_PAYLINES = [
+    [1,1,1,1,1], [0,0,0,0,0], [2,2,2,2,2], [0,1,2,1,0], [2,1,0,1,2],
+    [0,0,1,2,2], [2,2,1,0,0], [1,0,0,0,1], [1,2,2,2,1], [0,1,1,1,0],
+    [2,1,1,1,2], [1,0,1,2,1], [1,2,1,0,1], [0,0,2,0,0], [2,2,0,2,2],
+    [1,1,0,1,1], [1,1,2,1,1], [0,2,0,2,0], [2,0,2,0,2], [0,1,0,1,0],
+    [2,1,2,1,2], [0,2,2,2,0], [2,0,0,0,2], [1,0,2,0,1], [1,2,0,2,1]
+];
+
+const HF_CONFIG = {
+    // Дешёвые символы (карты) — id: {emoji, weight}
+    CHEAP: {
+        A:  { emoji: '🅰️', weight: 22 },
+        K:  { emoji: '🇰',  weight: 20 },
+        Q:  { emoji: '🇶',  weight: 18 },
+        J:  { emoji: '🇯',  weight: 16 },
+        T:  { emoji: '🔟', weight: 14 },
+    },
+    // Дорогие символы
+    PREMIUM: {
+        SOMBRERO: { emoji: '🤠', weight: 6 },
+        DANCER:   { emoji: '💃', weight: 5 },
+        ACCORDION:{ emoji: '🪗', weight: 4.5 },
+        GUITAR:   { emoji: '🎸', weight: 4 },
+        MARACAS:  { emoji: '🪇', weight: 3.5 },
+        MARGARITA:{ emoji: '🍹', weight: 3 },
+    },
+    WILD_WEIGHT: 3,
+    SCATTER_WEIGHT: 2.2,          // вес скаттера на разрешённых барабанах (0,2,4)
+    SCATTER_WEIGHT_ANTE: 4.4,     // ×2 при Ante Bet
+    WILD_MULT_WEIGHTS: { 2: 60, 3: 30, 5: 10 }, // распределение множителя Wild
+    SCATTER_REELS: [0, 2, 4],
+    SCATTER_TRIGGER_INSTANT_WIN: 3,   // ×3 от ставки мгновенно при 3 скаттерах
+    FREE_SPINS_MIN: 9,
+    FREE_SPINS_MAX: 27,
+    ANTE_COST_MULT: 1.4,          // +40% к стоимости спина
+    ANTE_SCATTER_MULT: 2,         // удвоенный шанс скаттера
+    BONUS_BUY_MULTIPLIER: 100,    // цена покупки бонуса = ставка × 100
+    MAX_WIN_MULTIPLIER: 5000,     // потолок ×5000 от ставки
+    MAX_STICKY_WILDS: 10,         // предохранитель от переполнения сетки залипшими Wild
+    MIN_BET: 100,
+};
+
+// Таблица выплат: множитель ставки за 3/4/5 совпадений подряд слева направо
+const HF_PAYTABLE = {
+    T:         { 3: 0.10, 4: 0.25, 5: 0.60 },
+    J:         { 3: 0.10, 4: 0.25, 5: 0.60 },
+    Q:         { 3: 0.15, 4: 0.35, 5: 0.80 },
+    K:         { 3: 0.15, 4: 0.35, 5: 0.80 },
+    A:         { 3: 0.20, 4: 0.45, 5: 1.00 },
+    MARGARITA: { 3: 0.30, 4: 0.80, 5: 2.00 },
+    MARACAS:   { 3: 0.40, 4: 1.00, 5: 2.50 },
+    GUITAR:    { 3: 0.50, 4: 1.30, 5: 3.20 },
+    ACCORDION: { 3: 0.60, 4: 1.60, 5: 4.00 },
+    DANCER:    { 3: 0.80, 4: 2.20, 5: 6.00 },
+    SOMBRERO:  { 3: 1.20, 4: 3.50, 5: 10.00 },
+    WILD:      { 3: 1.50, 4: 4.50, 5: 15.00 }, // если линия целиком из Wild
+};
+
+const hfSessions = new Map();
+
+function hfBuildSymbolPool(scatterAllowed, scatterWeight) {
+    const pool = {};
+    for (const [id, s] of Object.entries(HF_CONFIG.CHEAP)) pool[id] = s.weight;
+    for (const [id, s] of Object.entries(HF_CONFIG.PREMIUM)) pool[id] = s.weight;
+    pool.WILD = HF_CONFIG.WILD_WEIGHT;
+    if (scatterAllowed) pool.SCATTER = scatterWeight;
+    return pool;
+}
+
+function hfWeightedPick(pool) {
+    const total = Object.values(pool).reduce((s, w) => s + w, 0);
+    let roll = Math.random() * total;
+    for (const [key, w] of Object.entries(pool)) {
+        roll -= w;
+        if (roll <= 0) return key;
+    }
+    return Object.keys(pool)[0];
+}
+
+function hfPickWildMultiplier() {
+    const total = Object.values(HF_CONFIG.WILD_MULT_WEIGHTS).reduce((s, w) => s + w, 0);
+    let roll = Math.random() * total;
+    for (const [mult, w] of Object.entries(HF_CONFIG.WILD_MULT_WEIGHTS)) {
+        roll -= w;
+        if (roll <= 0) return parseInt(mult);
+    }
+    return 2;
+}
+
+function hfEmoji(id) {
+    if (id === 'WILD') return '🪅';
+    if (id === 'SCATTER') return '🎆';
+    if (HF_CONFIG.CHEAP[id]) return HF_CONFIG.CHEAP[id].emoji;
+    if (HF_CONFIG.PREMIUM[id]) return HF_CONFIG.PREMIUM[id].emoji;
+    return '❓';
+}
+
+// Генерирует базовую сетку (не бонусную): grid[reel][row] = { id, mult? }
+function hfGenerateBaseGrid(anteActive) {
+    const scatterWeight = anteActive ? HF_CONFIG.SCATTER_WEIGHT_ANTE : HF_CONFIG.SCATTER_WEIGHT;
+    const grid = [];
+    for (let reel = 0; reel < HF_REELS; reel++) {
+        const scatterAllowed = HF_CONFIG.SCATTER_REELS.includes(reel);
+        const pool = hfBuildSymbolPool(scatterAllowed, scatterWeight);
+        const col = [];
+        for (let row = 0; row < HF_ROWS; row++) {
+            const id = hfWeightedPick(pool);
+            if (id === 'WILD') {
+                col.push({ id, mult: hfPickWildMultiplier() });
+            } else {
+                col.push({ id });
+            }
+        }
+        grid.push(col);
+    }
+    return grid;
+}
+
+// Генерирует сетку для фриспина в бонусе — БЕЗ скаттера, с учётом залипших Wild
+function hfGenerateBonusGrid(stickyWilds) {
+    const totalCells = HF_REELS * HF_ROWS;
+    const cellIndices = Array.from({ length: totalCells }, (_, i) => i);
+    // Перемешиваем, чтобы выбрать случайные позиции для залипших Wild
+    for (let i = cellIndices.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [cellIndices[i], cellIndices[j]] = [cellIndices[j], cellIndices[i]];
+    }
+    const stickyPositions = new Set(cellIndices.slice(0, Math.min(stickyWilds.length, totalCells)));
+
+    const grid = [];
+    for (let reel = 0; reel < HF_REELS; reel++) grid.push(new Array(HF_ROWS).fill(null));
+
+    // Расставляем залипшие Wild по выбранным позициям
+    let stickyIdx = 0;
+    const stickyArr = Array.from(stickyPositions);
+    for (const cellIdx of stickyArr) {
+        const reel = Math.floor(cellIdx / HF_ROWS);
+        const row = cellIdx % HF_ROWS;
+        grid[reel][row] = { id: 'WILD', mult: stickyWilds[stickyIdx].mult, sticky: true };
+        stickyIdx++;
+    }
+
+    // Заполняем остальные клетки обычной генерацией (без скаттера), новые Wild — тоже возможны
+    const pool = hfBuildSymbolPool(false, 0);
+    const newlyLandedWilds = [];
+    for (let reel = 0; reel < HF_REELS; reel++) {
+        for (let row = 0; row < HF_ROWS; row++) {
+            if (grid[reel][row]) continue; // занято залипшим Wild
+            const id = hfWeightedPick(pool);
+            if (id === 'WILD') {
+                const mult = hfPickWildMultiplier();
+                grid[reel][row] = { id, mult };
+                newlyLandedWilds.push({ mult });
+            } else {
+                grid[reel][row] = { id };
+            }
+        }
+    }
+
+    return { grid, newlyLandedWilds };
+}
+
+// Оценивает выигрыш по всем 25 линиям. grid[reel][row].
+function hfEvaluateLines(grid, bet) {
+    let totalWin = 0;
+    const winningLines = [];
+
+    for (let lineIdx = 0; lineIdx < HF_PAYLINES.length; lineIdx++) {
+        const line = HF_PAYLINES[lineIdx];
+        const cells = line.map((row, reel) => grid[reel][row]);
+
+        // Определяем "рабочий" символ линии — первый не-Wild слева
+        let baseSymbol = null;
+        for (const cell of cells) {
+            if (cell.id !== 'WILD') { baseSymbol = cell.id; break; }
+        }
+        if (!baseSymbol) baseSymbol = 'WILD'; // вся линия из Wild
+
+        // Считаем совпадения подряд слева направо (символ или Wild)
+        let matchCount = 0;
+        const wildsInLine = [];
+        for (const cell of cells) {
+            if (cell.id === baseSymbol || cell.id === 'WILD') {
+                matchCount++;
+                if (cell.id === 'WILD') wildsInLine.push(cell.mult);
+            } else {
+                break;
+            }
+        }
+
+        if (matchCount < 3) continue;
+        const table = HF_PAYTABLE[baseSymbol];
+        if (!table) continue;
+
+        const tierMultiplier = table[matchCount] || table[5] || 0;
+        if (tierMultiplier <= 0) continue;
+
+        const lineMultiplier = wildsInLine.length > 0 ? wildsInLine.reduce((a, b) => a + b, 0) : 1;
+        const lineWin = Math.floor(bet * tierMultiplier * lineMultiplier);
+
+        if (lineWin > 0) {
+            totalWin += lineWin;
+            winningLines.push({ lineIdx, symbol: baseSymbol, count: matchCount, lineMultiplier, win: lineWin });
+        }
+    }
+
+    return { totalWin, winningLines };
+}
+
+function hfCountScatters(grid) {
+    let count = 0;
+    for (const reel of HF_CONFIG.SCATTER_REELS) {
+        const hasScatter = grid[reel].some(cell => cell.id === 'SCATTER');
+        if (hasScatter) count++;
+    }
+    return count;
+}
+
+function hfFormatGrid(grid) {
+    let out = '';
+    for (let row = 0; row < HF_ROWS; row++) {
+        const cells = [];
+        for (let reel = 0; reel < HF_REELS; reel++) {
+            const cell = grid[reel][row];
+            let s = hfEmoji(cell.id);
+            if (cell.id === 'WILD' && cell.mult) s += `×${cell.mult}`;
+            cells.push(s);
+        }
+        out += cells.join(' | ') + '\n';
+    }
+    return out;
+}
+
+function hfDynamicMaxBet(balance) {
+    return Math.floor(500 + balance * 0.10);
+}
+
+function hfClampBet(bet, balance) {
+    if (!Number.isFinite(bet) || bet <= 0) return HF_CONFIG.MIN_BET;
+    const max = hfDynamicMaxBet(balance);
+    return Math.max(HF_CONFIG.MIN_BET, Math.min(Math.floor(bet), max, Math.floor(balance)));
+}
+
+function hfApplyMaxWin(win, bet) {
+    const cap = bet * HF_CONFIG.MAX_WIN_MULTIPLIER;
+    return win > cap ? cap : win;
+}
+
+// ---- UI ----
+
+function hfBuildMenuEmbed(session, lastResultText = null) {
+    const balance = getBalance(session.userId);
+    const spinCost = session.ante ? Math.ceil(session.bet * HF_CONFIG.ANTE_COST_MULT) : session.bet;
+    const bonusCost = session.bet * HF_CONFIG.BONUS_BUY_MULTIPLIER;
+
+    const desc = [
+        `**Ставка:** ${session.bet} 🪙`,
+        `**Стоимость спина:** ${spinCost} 🪙${session.ante ? ' (Ante Bet включён)' : ''}`,
+        `**Баланс:** ${isUnlimited(session.userId) ? '∞' : balance} 🪙`,
+        `**Купить бонус:** ${bonusCost} 🪙`,
+        '',
+        lastResultText || '_Настрой ставку и жми «Крутить»._',
+    ].join('\n');
+
+    return new EmbedBuilder().setColor(0xff6600).setTitle('🎉 Hot Fiesta — казино').setDescription(desc);
+}
+
+function hfBuildMenuComponents(session) {
+    const balance = getBalance(session.userId);
+    const spinCost = session.ante ? Math.ceil(session.bet * HF_CONFIG.ANTE_COST_MULT) : session.bet;
+    const bonusCost = session.bet * HF_CONFIG.BONUS_BUY_MULTIPLIER;
+
+    const betRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`hotfiesta_betx2_${session.id}`).setLabel('×2').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`hotfiesta_betx5_${session.id}`).setLabel('×5').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`hotfiesta_betx10_${session.id}`).setLabel('×10').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`hotfiesta_betreset_${session.id}`).setLabel('Мин.').setStyle(ButtonStyle.Secondary)
+    );
+
+    const featureRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`hotfiesta_ante_${session.id}`)
+            .setLabel(session.ante ? '🎲 Ante Bet: Вкл' : '🎲 Ante Bet: Выкл')
+            .setStyle(session.ante ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId(`hotfiesta_buybonus_${session.id}`)
+            .setLabel(`🎁 Купить бонус (${bonusCost} 🪙)`)
+            .setStyle(ButtonStyle.Danger)
+            .setDisabled(balance < bonusCost)
+    );
+
+    const spinRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`hotfiesta_spin_${session.id}`)
+            .setLabel('🎰 Крутить')
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(balance < spinCost || session.busy)
+    );
+
+    return [betRow, featureRow, spinRow];
+}
+
+async function handleCasinoHotFiesta(message) {
+    const args = message.content.split(' ');
+    const requestedBet = parseInt(args[2]);
+    const balance = getBalance(message.author.id);
+
+    if (!Number.isFinite(requestedBet) || requestedBet <= 0) {
+        message.reply('Напиши так: `!casino hotfiesta 500`');
+        return;
+    }
+
+    const bet = hfClampBet(requestedBet, balance);
+    if (bet > balance) {
+        message.reply(`Недостаточно фишек! У тебя: ${balance} 🪙`);
+        return;
+    }
+
+    const sessionId = `${message.author.id}_${Date.now()}`;
+    const session = {
+        id: sessionId,
+        userId: message.author.id,
+        bet,
+        ante: false,
+        busy: false,
+        bonusState: null,
+    };
+
+    const menuMsg = await message.reply({
+        embeds: [hfBuildMenuEmbed(session)],
+        components: hfBuildMenuComponents(session),
+    });
+
+    hfSessions.set(menuMsg.id, session);
+
+    const collector = menuMsg.createMessageComponentCollector({
+        filter: (i) => i.customId.endsWith(sessionId) && i.user.id === session.userId,
+        time: 10 * 60 * 1000,
+    });
+
+    collector.on('collect', (interaction) => handleHotFiestaButton(interaction, menuMsg, session));
+    collector.on('end', () => hfSessions.delete(menuMsg.id));
+}
+
+async function handleHotFiestaButton(interaction, menuMsg, session) {
+    const action = interaction.customId.split('_')[1];
+    const balance = getBalance(session.userId);
+
+    // Защита от даблклика/гонки — пока идёт спин или бонус, игнорируем прочие действия
+    if (session.busy && (action === 'spin' || action === 'buybonus')) {
+        await interaction.reply({ content: '⏳ Дождись окончания текущего действия.', ephemeral: true });
+        return;
+    }
+
+    if (action.startsWith('betx')) {
+        const mult = parseInt(action.replace('betx', ''));
+        session.bet = hfClampBet(session.bet * mult, balance);
+        await interaction.update({ embeds: [hfBuildMenuEmbed(session)], components: hfBuildMenuComponents(session) });
+        return;
+    }
+
+    if (action === 'betreset') {
+        session.bet = HF_CONFIG.MIN_BET;
+        await interaction.update({ embeds: [hfBuildMenuEmbed(session)], components: hfBuildMenuComponents(session) });
+        return;
+    }
+
+    if (action === 'ante') {
+        session.ante = !session.ante;
+        await interaction.update({ embeds: [hfBuildMenuEmbed(session)], components: hfBuildMenuComponents(session) });
+        return;
+    }
+
+    if (action === 'buybonus') {
+        const cost = session.bet * HF_CONFIG.BONUS_BUY_MULTIPLIER;
+        if (balance < cost) {
+            await interaction.reply({ content: 'Недостаточно фишек для покупки бонуса.', ephemeral: true });
+            return;
+        }
+        session.busy = true;
+        setBalance(session.userId, balance - cost);
+        saveLists();
+        await interaction.update({ embeds: [hfBuildMenuEmbed(session, '🎁 Бонус куплен! Открываем пиньяты...')], components: [] });
+        await hfRunPinataIntro(menuMsg, session);
+        session.bonusState = { spinsLeft: session.freeSpinsCount, stickyWilds: [], totalWin: 0 };
+        await hfRunBonusSequence(menuMsg, session);
+        session.busy = false;
+        return;
+    }
+
+    if (action === 'spin') {
+        const spinCost = session.ante ? Math.ceil(session.bet * HF_CONFIG.ANTE_COST_MULT) : session.bet;
+        if (balance < spinCost) {
+            await interaction.reply({ content: 'Недостаточно фишек на эту ставку.', ephemeral: true });
+            return;
+        }
+        session.busy = true;
+        setBalance(session.userId, balance - spinCost);
+        saveLists();
+        await interaction.update({ embeds: [hfBuildMenuEmbed(session, '🎰 Крутим барабаны...')], components: [] });
+        await hfRunSpinSequence(menuMsg, session);
+        session.busy = false;
+        return;
+    }
+}
+
+const HF_TEASER_FLAVOR = [
+    'Барабаны почти остановились...',
+    'Кажется, назревает фиеста!',
+    'Ещё немного...',
+];
+
+function hfFakeTeaserGrid() {
+    const symbols = ['🤠', '💃', '🪗', '🎸', '🪇', '🍹', '🅰️', '🇰', '🇶'];
+    const grid = [];
+    for (let reel = 0; reel < HF_REELS; reel++) {
+        const col = [];
+        for (let row = 0; row < HF_ROWS; row++) {
+            col.push({ id: symbols[Math.floor(Math.random() * symbols.length)] });
+        }
+        grid.push(col);
+    }
+    return grid;
+}
+
+function hfFormatTeaserGrid(grid) {
+    let out = '';
+    for (let row = 0; row < HF_ROWS; row++) {
+        const cells = [];
+        for (let reel = 0; reel < HF_REELS; reel++) cells.push(grid[reel][row].id);
+        out += cells.join(' | ') + '\n';
+    }
+    return out;
+}
+
+async function hfRunSpinSequence(menuMsg, session) {
+    const teaserCount = 2 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < teaserCount; i++) {
+        await menuMsg.edit({
+            embeds: [new EmbedBuilder()
+                .setColor(0xffaa00)
+                .setTitle('🎉 Hot Fiesta — казино')
+                .setDescription(`${hfFormatTeaserGrid(hfFakeTeaserGrid())}\n_${HF_TEASER_FLAVOR[i % HF_TEASER_FLAVOR.length]}_`)],
+            components: [],
+        });
+        await sleep(650);
+    }
+
+    // Реальный результат определён здесь, до финального показа — анимация выше на него не влияет
+    const grid = hfGenerateBaseGrid(session.ante);
+    const { totalWin: rawWin, winningLines } = hfEvaluateLines(grid, session.bet);
+    const scatterCount = hfCountScatters(grid);
+
+    let totalWin = rawWin;
+    let instantScatterWin = 0;
+    let bonusTriggered = false;
+
+    if (scatterCount >= 3) {
+        instantScatterWin = session.bet * HF_CONFIG.SCATTER_TRIGGER_INSTANT_WIN;
+        totalWin += instantScatterWin;
+        bonusTriggered = true;
+    }
+
+    totalWin = hfApplyMaxWin(totalWin, session.bet);
+
+    const balanceBefore = getBalance(session.userId);
+    setBalance(session.userId, balanceBefore + totalWin);
+    saveLists();
+
+    const stats = getStats(session.userId);
+    stats.casinoSpinsTotal = (stats.casinoSpinsTotal || 0) + 1;
+    saveLists();
+
+    let resultText = totalWin > 0 ? `🎉 Выигрыш: **${totalWin} 🪙**` : '😔 Совпадений не было.';
+    if (bonusTriggered) resultText += `\n🎆 3 скаттера! +${instantScatterWin} 🪙 и запуск бонуса...`;
+
+    await menuMsg.edit({
+        embeds: [new EmbedBuilder()
+            .setColor(totalWin > 0 ? 0x00ff00 : 0xff0000)
+            .setTitle('🎉 Hot Fiesta — казино')
+            .setDescription(`${hfFormatGrid(grid)}\n${resultText}`)],
+        components: [],
+    });
+
+    await sleep(1500);
+
+    if (bonusTriggered) {
+        await hfRunPinataIntro(menuMsg, session);
+        session.bonusState = { spinsLeft: session.freeSpinsCount, stickyWilds: [], totalWin: 0 };
+        await hfRunBonusSequence(menuMsg, session);
+        return;
+    }
+
+    await menuMsg.edit({ embeds: [hfBuildMenuEmbed(session)], components: hfBuildMenuComponents(session) });
+}
+
+async function hfRunPinataIntro(menuMsg, session) {
+    const pinataCount = 9;
+    let opened = new Array(pinataCount).fill(false);
+
+    function render() {
+        let out = '';
+        for (let r = 0; r < 3; r++) {
+            const row = [];
+            for (let c = 0; c < 3; c++) {
+                const i = r * 3 + c;
+                row.push(opened[i] ? '💥' : '🪅');
+            }
+            out += row.join(' ') + '\n';
+        }
+        return out;
+    }
+
+    await menuMsg.edit({
+        embeds: [new EmbedBuilder().setColor(0xff6600).setTitle('🎁 Открываем пиньяты!').setDescription(render())],
+        components: [],
+    });
+    await sleep(900);
+
+    // Открываем частями
+    const order = Array.from({ length: pinataCount }, (_, i) => i).sort(() => Math.random() - 0.5);
+    for (let step = 0; step < order.length; step += 3) {
+        for (let k = step; k < Math.min(step + 3, order.length); k++) opened[order[k]] = true;
+        await menuMsg.edit({
+            embeds: [new EmbedBuilder().setColor(0xff6600).setTitle('🎁 Открываем пиньяты!').setDescription(render())],
+            components: [],
+        });
+        await sleep(800);
+    }
+
+    const freeSpins = HF_CONFIG.FREE_SPINS_MIN + Math.floor(Math.random() * (HF_CONFIG.FREE_SPINS_MAX - HF_CONFIG.FREE_SPINS_MIN + 1));
+    session.freeSpinsCount = freeSpins;
+
+    await menuMsg.edit({
+        embeds: [new EmbedBuilder().setColor(0xff6600).setTitle('🎁 Пиньяты открыты!').setDescription(`Все пиньяты разбиты!\n\n🎉 Ты получаешь **${freeSpins}** фриспинов!`)],
+        components: [],
+    });
+    await sleep(1200);
+}
+
+async function hfRunBonusSequence(menuMsg, session) {
+    const state = session.bonusState;
+
+    while (state.spinsLeft > 0) {
+        await sleep(900);
+
+        const { grid, newlyLandedWilds } = hfGenerateBonusGrid(state.stickyWilds);
+        const { totalWin: spinWin } = hfEvaluateLines(grid, session.bet);
+
+        state.totalWin += spinWin;
+        state.spinsLeft--;
+
+        // Новые Wild пополняют залипший пул для следующих спинов (с предохранителем от переполнения)
+        for (const w of newlyLandedWilds) {
+            if (state.stickyWilds.length < HF_CONFIG.MAX_STICKY_WILDS) {
+                state.stickyWilds.push({ mult: w.mult });
+            }
+        }
+
+        state.totalWin = hfApplyMaxWin(state.totalWin, session.bet);
+
+        await menuMsg.edit({
+            embeds: [new EmbedBuilder()
+                .setColor(0xcc3300)
+                .setTitle('🎉 Hot Fiesta — Free Spins')
+                .setDescription(
+                    `${hfFormatGrid(grid)}\n` +
+                    `Спинов осталось: ${state.spinsLeft} | Sticky Wild: ${state.stickyWilds.length}\n` +
+                    `Выигрыш за спин: ${spinWin} 🪙 | Всего в бонусе: ${state.totalWin} 🪙`
+                )],
+            components: [],
+        });
+    }
+
+    const balance = getBalance(session.userId);
+    setBalance(session.userId, balance + state.totalWin);
+    saveLists();
+
+    const finishedWin = state.totalWin;
+    session.bonusState = null;
+
+    await sleep(1000);
+    await menuMsg.edit({
+        embeds: [hfBuildMenuEmbed(session, `🏁 Фриспины завершены! Итого получено: **${finishedWin} 🪙**`)],
+        components: hfBuildMenuComponents(session),
+    });
+}
+
 // Вставь сюда 10+ ссылок на гифки для победы
 const WIN_GIFS = [
     'https://cdn.discordapp.com/emojis/1540807221707939860.webp?size=96',
@@ -4175,6 +4770,12 @@ startTurnTimer(); // запускаем таймер на самый первы�
         // ---- !casino darkness <ставка> (второе казино, Sugar Rush → Darkness) ----
     if (message.content.startsWith('!casino darkness')) {
         await handleCasinoDarkness(message);
+        return;
+    }
+
+        // ---- !casino hotfiesta <ставка> (третье казино, 5x3 25 линий) ----
+    if (message.content.startsWith('!casino hotfiesta')) {
+        await handleCasinoHotFiesta(message);
         return;
     }
 
