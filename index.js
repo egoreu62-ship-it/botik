@@ -1100,8 +1100,8 @@ const HF_CONFIG = {
         MARGARITA:{ emoji: '🍹', weight: 3 },
     },
     WILD_WEIGHT: 3,
-    SCATTER_WEIGHT: 1.2,          // вес скаттера на разрешённых барабанах (0,2,4)
-    SCATTER_WEIGHT_ANTE: 2.4,     // ×2 при Ante Bet
+    SCATTER_WEIGHT: 1.8,          // вес скаттера на разрешённых барабанах (0,2,4)
+    SCATTER_WEIGHT_ANTE: 3.4,     // ×2 при Ante Bet
     WILD_MULT_WEIGHTS: { 2: 60, 3: 30, 5: 10 }, // распределение множителя Wild
     SCATTER_REELS: [0, 2, 4],
     SCATTER_TRIGGER_INSTANT_WIN: 3,   // ×3 от ставки мгновенно при 3 скаттерах
