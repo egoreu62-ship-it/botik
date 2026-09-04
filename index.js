@@ -533,7 +533,7 @@ const DK_BASE_SYMBOLS = {
     SPIDER:  { emoji: '🕷️', weight: 4  },
     REAPER:  { emoji: '💀', weight: 2  },
     WILD:    { emoji: '🃏', weight: 1.2 },
-    SCATTER: { emoji: '⭐', weight: 3  },
+    SCATTER: { emoji: '⭐', weight: 2  },
 };
 
 const DK_CLUSTER_PAYOUTS = {
@@ -1100,8 +1100,8 @@ const HF_CONFIG = {
         MARGARITA:{ emoji: '🍹', weight: 3 },
     },
     WILD_WEIGHT: 3,
-    SCATTER_WEIGHT: 2.2,          // вес скаттера на разрешённых барабанах (0,2,4)
-    SCATTER_WEIGHT_ANTE: 4.4,     // ×2 при Ante Bet
+    SCATTER_WEIGHT: 1.2,          // вес скаттера на разрешённых барабанах (0,2,4)
+    SCATTER_WEIGHT_ANTE: 2.4,     // ×2 при Ante Bet
     WILD_MULT_WEIGHTS: { 2: 60, 3: 30, 5: 10 }, // распределение множителя Wild
     SCATTER_REELS: [0, 2, 4],
     SCATTER_TRIGGER_INSTANT_WIN: 3,   // ×3 от ставки мгновенно при 3 скаттерах
@@ -1110,7 +1110,7 @@ const HF_CONFIG = {
     ANTE_COST_MULT: 1.4,          // +40% к стоимости спина
     ANTE_SCATTER_MULT: 2,         // удвоенный шанс скаттера
     BONUS_BUY_MULTIPLIER: 100,    // цена покупки бонуса = ставка × 100
-    MAX_WIN_MULTIPLIER: 5000,     // потолок ×5000 от ставки
+    MAX_WIN_MULTIPLIER: 1000,     // потолок ×5000 от ставки
     MAX_STICKY_WILDS: 10,         // предохранитель от переполнения сетки залипшими Wild
     MIN_BET: 100,
 };
