@@ -520,6 +520,552 @@ function collapseAndRefillSugar(grid, toRemove) {
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+// ==== DARKNESS CASINO (второй вид слотов, отдельно от обычного !casino) ====
+
+const DK_GRID_COLS = 6;
+const DK_GRID_ROWS = 5;
+
+const DK_BASE_SYMBOLS = {
+    FILLER:  { emoji: '🦇', weight: 40 },
+    WEB:     { emoji: '🕸️', weight: 11 },
+    PUMPKIN: { emoji: '🎃', weight: 7  },
+    SPIDER:  { emoji: '🕷️', weight: 4  },
+    REAPER:  { emoji: '💀', weight: 2  },
+    WILD:    { emoji: '🃏', weight: 1.2 },
+    SCATTER: { emoji: '⭐', weight: 3  },
+};
+
+const DK_CLUSTER_PAYOUTS = {
+    WEB:     { 5: 0.54, 8: 1.26, 12: 3.24, 18: 10.8 },
+    PUMPKIN: { 5: 0.90, 8: 1.98, 12: 5.04, 18: 18.0 },
+    SPIDER:  { 5: 1.44, 8: 3.60, 12: 9.36, 18: 32.4 },
+    REAPER:  { 5: 2.88, 8: 7.20, 12: 19.8, 18: 79.2 },
+};
+
+const DK_MEASURED_BASELINE_RTP = 0.896;
+const DK_SCATTER_FREESPINS = 10;
+const DK_SCATTER_TRIGGER_COUNT = 3;
+
+function dkWeightedPick(pool) {
+    const total = Object.values(pool).reduce((s, v) => s + v.weight, 0);
+    let roll = Math.random() * total;
+    for (const [key, val] of Object.entries(pool)) {
+        roll -= val.weight;
+        if (roll <= 0) return key;
+    }
+    return Object.keys(pool)[0];
+}
+
+function dkSpinBaseGrid(scatterWeightMultiplier = 1) {
+    let pool = DK_BASE_SYMBOLS;
+    if (scatterWeightMultiplier !== 1) {
+        pool = { ...DK_BASE_SYMBOLS, SCATTER: { ...DK_BASE_SYMBOLS.SCATTER, weight: DK_BASE_SYMBOLS.SCATTER.weight * scatterWeightMultiplier } };
+    }
+    const grid = [];
+    for (let i = 0; i < DK_GRID_COLS * DK_GRID_ROWS; i++) {
+        grid.push(dkWeightedPick(pool));
+    }
+    return grid;
+}
+
+function dkCountSymbols(grid) {
+    const counts = {};
+    for (const s of grid) counts[s] = (counts[s] || 0) + 1;
+    return counts;
+}
+
+function dkPayoutTierFor(table, symbol, count) {
+    const symTable = table[symbol];
+    if (!symTable) return 0;
+    const thresholds = Object.keys(symTable).map(Number).sort((a, b) => a - b);
+    let tier = 0;
+    for (const t of thresholds) {
+        if (count >= t) tier = symTable[t];
+    }
+    return tier;
+}
+
+// ---- Лояльти-множитель (та же формула для всех игроков, зависит только от их числа спинов) ----
+const DK_LOYALTY_C = 0.15;
+
+function dkComputeDynamicMultiplier(userTotalSpins, baselineRtp) {
+    const n = Math.max(0, userTotalSpins);
+    const targetRtp = 1 + DK_LOYALTY_C / (n + 1);
+    return targetRtp / baselineRtp;
+}
+
+function dkApplyLoyaltyMultiplier(rawWin, userTotalSpins, baselineRtp) {
+    if (rawWin <= 0) return rawWin;
+    const mult = dkComputeDynamicMultiplier(userTotalSpins, baselineRtp);
+    return Math.floor(rawWin * mult);
+}
+
+function dkEvaluateBaseSpin(bet, userTotalSpins = 0, options = {}) {
+    const { scatterWeightMultiplier = 1 } = options;
+    const grid = dkSpinBaseGrid(scatterWeightMultiplier);
+    const counts = dkCountSymbols(grid);
+    const wildCount = counts.WILD || 0;
+    const scatterCount = counts.SCATTER || 0;
+
+    let rawWin = 0;
+    const breakdown = [];
+
+    for (const symbol of Object.keys(DK_CLUSTER_PAYOUTS)) {
+        const naturalCount = counts[symbol] || 0;
+        if (naturalCount === 0 && wildCount === 0) continue;
+        const effectiveCount = naturalCount + wildCount;
+        const tier = dkPayoutTierFor(DK_CLUSTER_PAYOUTS, symbol, effectiveCount);
+        if (tier > 0 && naturalCount > 0) {
+            const win = Math.floor(bet * tier);
+            rawWin += win;
+            breakdown.push({ symbol, count: effectiveCount, win });
+        }
+    }
+
+    const totalWin = dkApplyLoyaltyMultiplier(rawWin, userTotalSpins, DK_MEASURED_BASELINE_RTP);
+
+    let freeSpinsAwarded = 0;
+    if (scatterCount >= DK_SCATTER_TRIGGER_COUNT) {
+        freeSpinsAwarded = DK_SCATTER_FREESPINS;
+    }
+
+    return { grid, totalWin, rawWin, scatterCount, freeSpinsAwarded, breakdown };
+}
+
+// ---- Бонус-раунд (пентаграмма) ----
+const DK_BONUS_GRID_COLS = 5;
+const DK_BONUS_GRID_ROWS = 5;
+const DK_PENTAGRAM_CELLS = [6, 8, 15, 19, 22];
+
+const DK_BONUS_SYMBOLS = {
+    WEB:      { emoji: '🕸️', weight: 22 },
+    PUMPKIN:  { emoji: '🎃', weight: 18 },
+    SPIDER:   { emoji: '🕷️', weight: 14 },
+    REAPER:   { emoji: '💀', weight: 8  },
+    WILD:     { emoji: '🃏', weight: 4  },
+    PAINTING: { emoji: '🖼️', weight: 2  },
+    CULTIST:  { emoji: '🥷', weight: 6  },
+};
+
+const DK_BONUS_CLUSTER_PAYOUTS = {
+    WEB:      { 5: 0.15, 8: 0.35, 12: 0.90, 18: 3.0  },
+    PUMPKIN:  { 5: 0.20, 8: 0.50, 12: 1.30, 18: 4.5  },
+    SPIDER:   { 5: 0.35, 8: 0.90, 12: 2.40, 18: 9.0  },
+    REAPER:   { 5: 0.70, 8: 1.80, 12: 5.00, 18: 20.0 },
+    PAINTING: { 5: 2.00, 8: 5.00, 12: 15.0, 18: 60.0 },
+    CULTIST:  { 5: 0.40, 8: 1.00, 12: 2.80, 18: 10.0 },
+};
+
+const DK_CULTIST_FREESPINS_PER_LOCK = 2;
+const DK_MEGA_BONUS_INSTANT_WIN_MULT = 10;
+const DK_MEGA_BONUS_REMAINING_MULT = 100;
+const DK_MEGA_BONUS_HITRATE_BOOST = 2.0;
+
+function dkCreateBonusState(bet) {
+    return {
+        bet,
+        spinsLeft: DK_SCATTER_FREESPINS,
+        lockedPentagramCells: new Set(),
+        totalWin: 0,
+        megaTriggered: false,
+        winMultiplier: 1,
+    };
+}
+
+function dkPickBonusPool(state) {
+    if (!state.megaTriggered) return DK_BONUS_SYMBOLS;
+    const boosted = {};
+    for (const [key, val] of Object.entries(DK_BONUS_SYMBOLS)) {
+        boosted[key] = { ...val, weight: key === 'WEB' ? val.weight / DK_MEGA_BONUS_HITRATE_BOOST : val.weight * DK_MEGA_BONUS_HITRATE_BOOST };
+    }
+    return boosted;
+}
+
+function dkSpinBonusRound(state) {
+    if (state.spinsLeft <= 0) {
+        throw new Error('Бонус уже завершён — spinsLeft <= 0');
+    }
+
+    const pool = dkPickBonusPool(state);
+    const grid = new Array(DK_BONUS_GRID_COLS * DK_BONUS_GRID_ROWS);
+
+    for (let i = 0; i < grid.length; i++) {
+        if (state.lockedPentagramCells.has(i)) {
+            grid[i] = 'CULTIST_LOCKED';
+            continue;
+        }
+        grid[i] = dkWeightedPick(pool);
+    }
+
+    const newlyLocked = [];
+    for (const cellIndex of DK_PENTAGRAM_CELLS) {
+        if (state.lockedPentagramCells.has(cellIndex)) continue;
+        if (grid[cellIndex] === 'CULTIST') {
+            state.lockedPentagramCells.add(cellIndex);
+            newlyLocked.push(cellIndex);
+        }
+    }
+
+    let freeSpinsFromLocks = newlyLocked.length * DK_CULTIST_FREESPINS_PER_LOCK;
+    state.spinsLeft += freeSpinsFromLocks;
+
+    const evalGrid = grid.map((s) => (s === 'CULTIST_LOCKED' ? 'CULTIST' : s));
+    const counts = dkCountSymbols(evalGrid);
+    const wildCount = counts.WILD || 0;
+
+    let spinWin = 0;
+    for (const symbol of Object.keys(DK_BONUS_CLUSTER_PAYOUTS)) {
+        const naturalCount = counts[symbol] || 0;
+        if (naturalCount === 0) continue;
+        const effectiveCount = naturalCount + (symbol === 'WILD' ? 0 : wildCount);
+        const tier = dkPayoutTierFor(DK_BONUS_CLUSTER_PAYOUTS, symbol, effectiveCount);
+        if (tier > 0) {
+            spinWin += Math.floor(state.bet * tier);
+        }
+    }
+
+    let instantBonusWin = 0;
+    let megaJustTriggered = false;
+
+    if (!state.megaTriggered && state.lockedPentagramCells.size === DK_PENTAGRAM_CELLS.length) {
+        state.megaTriggered = true;
+        megaJustTriggered = true;
+        instantBonusWin = Math.floor(state.bet * DK_MEGA_BONUS_INSTANT_WIN_MULT);
+        state.winMultiplier = DK_MEGA_BONUS_REMAINING_MULT;
+    }
+
+    const appliedSpinWin = Math.floor(spinWin * state.winMultiplier);
+    state.totalWin += appliedSpinWin + instantBonusWin;
+    state.spinsLeft -= 1;
+
+    return {
+        grid,
+        spinWin: appliedSpinWin,
+        instantBonusWin,
+        newlyLocked,
+        megaJustTriggered,
+        spinsLeft: state.spinsLeft,
+        totalWin: state.totalWin,
+        pentagramProgress: state.lockedPentagramCells.size,
+    };
+}
+
+function dkFormatBaseGrid(grid) {
+    let out = '';
+    for (let r = 0; r < DK_GRID_ROWS; r++) {
+        const row = [];
+        for (let c = 0; c < DK_GRID_COLS; c++) {
+            row.push(DK_BASE_SYMBOLS[grid[r * DK_GRID_COLS + c]].emoji);
+        }
+        out += row.join(' ') + '\n';
+    }
+    return out;
+}
+
+function dkFormatBonusGrid(grid) {
+    let out = '';
+    for (let r = 0; r < DK_BONUS_GRID_ROWS; r++) {
+        const row = [];
+        for (let c = 0; c < DK_BONUS_GRID_COLS; c++) {
+            const idx = r * DK_BONUS_GRID_COLS + c;
+            const s = grid[idx];
+            const emoji = s === 'CULTIST_LOCKED' ? '🥷' : DK_BONUS_SYMBOLS[s].emoji;
+            row.push(emoji);
+        }
+        out += row.join(' ') + '\n';
+    }
+    return out;
+}
+
+// ---- Команда и UI Darkness Casino ----
+const DK_BONUS_BUY_MULTIPLIER = 80;
+const DK_ANTE_SURCHARGE_PCT = 0.30;
+const DK_ANTE_SCATTER_MULT = 2;
+const DK_BET_STEP_MULTIPLIERS = [2, 5, 10];
+const DK_MIN_BET = 100;
+
+const darknessSessions = new Map();
+
+function dkDynamicMaxBet(balance) {
+    return Math.floor(500 + balance * 0.10);
+}
+
+function dkClampBet(bet, balance) {
+    const max = dkDynamicMaxBet(balance);
+    return Math.max(DK_MIN_BET, Math.min(bet, max, balance));
+}
+
+function dkBuildMenuEmbed(session, lastResultText = null) {
+    const balance = getBalance(session.userId);
+    const anteCost = Math.ceil(session.bet * DK_ANTE_SURCHARGE_PCT);
+    const bonusCost = session.bet * DK_BONUS_BUY_MULTIPLIER;
+
+    const desc = [
+        `**Ставка:** ${session.bet} 🪙`,
+        `**Баланс:** ${isUnlimited(session.userId) ? '∞' : balance} 🪙`,
+        `**Двойной шанс:** ${session.doubleChance ? `🟢 Вкл (+${anteCost} 🪙 за спин)` : '⚪ Выкл'}`,
+        `**Купить бонус:** ${bonusCost} 🪙`,
+        '',
+        lastResultText ? lastResultText : '_Настрой ставку и жми «Крутить»._',
+    ].join('\n');
+
+    return new EmbedBuilder()
+        .setColor(0x2b0033)
+        .setTitle('🎃 Darkness — казино')
+        .setDescription(desc);
+}
+
+function dkBuildMenuComponents(session) {
+    const balance = getBalance(session.userId);
+
+    const betRow = new ActionRowBuilder().addComponents(
+        ...DK_BET_STEP_MULTIPLIERS.map((m) =>
+            new ButtonBuilder()
+                .setCustomId(`darkness_betx${m}_${session.id}`)
+                .setLabel(`×${m}`)
+                .setStyle(ButtonStyle.Secondary)
+        ),
+        new ButtonBuilder()
+            .setCustomId(`darkness_betreset_${session.id}`)
+            .setLabel('Мин. ставка')
+            .setStyle(ButtonStyle.Secondary)
+    );
+
+    const featureRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`darkness_buybonus_${session.id}`)
+            .setLabel(`Купить бонус (${session.bet * DK_BONUS_BUY_MULTIPLIER} 🪙)`)
+            .setStyle(ButtonStyle.Danger)
+            .setDisabled(balance < session.bet * DK_BONUS_BUY_MULTIPLIER),
+        new ButtonBuilder()
+            .setCustomId(`darkness_ante_${session.id}`)
+            .setLabel(session.doubleChance ? 'Двойной шанс: Вкл' : 'Двойной шанс: Выкл')
+            .setStyle(session.doubleChance ? ButtonStyle.Success : ButtonStyle.Secondary)
+    );
+
+    const spinRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`darkness_spin_${session.id}`)
+            .setLabel('🎰 Крутить')
+            .setStyle(ButtonStyle.Primary)
+            .setDisabled(balance < session.bet)
+    );
+
+    return [betRow, featureRow, spinRow];
+}
+
+async function handleCasinoDarkness(message) {
+    const args = message.content.split(' ');
+    const requestedBet = parseInt(args[2]);
+    const balance = getBalance(message.author.id);
+
+    if (!requestedBet || requestedBet <= 0) {
+        message.reply('Напиши так: `!casino darkness 500`');
+        return;
+    }
+
+    const bet = dkClampBet(requestedBet, balance);
+    if (bet > balance) {
+        message.reply(`Недостаточно фишек! У тебя: ${balance} 🪙`);
+        return;
+    }
+
+    const sessionId = `${message.author.id}_${Date.now()}`;
+    const session = {
+        id: sessionId,
+        userId: message.author.id,
+        bet,
+        doubleChance: false,
+        bonusState: null,
+    };
+
+    const menuMsg = await message.reply({
+        embeds: [dkBuildMenuEmbed(session)],
+        components: dkBuildMenuComponents(session),
+    });
+
+    darknessSessions.set(menuMsg.id, session);
+
+    const collector = menuMsg.createMessageComponentCollector({
+        filter: (i) => i.customId.endsWith(sessionId) && i.user.id === session.userId,
+        time: 10 * 60 * 1000,
+    });
+
+    collector.on('collect', (interaction) => handleDarknessButton(interaction, menuMsg, session, collector));
+    collector.on('end', () => darknessSessions.delete(menuMsg.id));
+}
+
+async function handleDarknessButton(interaction, menuMsg, session, collector) {
+    const action = interaction.customId.split('_')[1];
+    const balance = getBalance(session.userId);
+
+    if (action.startsWith('betx')) {
+        const mult = parseInt(action.replace('betx', ''));
+        session.bet = dkClampBet(session.bet * mult, balance);
+        await interaction.update({ embeds: [dkBuildMenuEmbed(session)], components: dkBuildMenuComponents(session) });
+        return;
+    }
+
+    if (action === 'betreset') {
+        session.bet = DK_MIN_BET;
+        await interaction.update({ embeds: [dkBuildMenuEmbed(session)], components: dkBuildMenuComponents(session) });
+        return;
+    }
+
+    if (action === 'ante') {
+        session.doubleChance = !session.doubleChance;
+        await interaction.update({ embeds: [dkBuildMenuEmbed(session)], components: dkBuildMenuComponents(session) });
+        return;
+    }
+
+    if (action === 'buybonus') {
+        const cost = session.bet * DK_BONUS_BUY_MULTIPLIER;
+        if (balance < cost) {
+            await interaction.reply({ content: 'Недостаточно фишек для покупки бонуса.', ephemeral: true });
+            return;
+        }
+        setBalance(session.userId, balance - cost);
+        session.bonusState = dkCreateBonusState(session.bet);
+        await interaction.update({ embeds: [dkBuildMenuEmbed(session, '🔮 Бонус куплен! Запускаю фриспины...')], components: [] });
+        await runDarknessBonusSequence(menuMsg, session);
+        return;
+    }
+
+    if (action === 'spin') {
+        const anteCost = session.doubleChance ? Math.ceil(session.bet * DK_ANTE_SURCHARGE_PCT) : 0;
+        const totalCost = session.bet + anteCost;
+        if (balance < totalCost) {
+            await interaction.reply({ content: 'Недостаточно фишек на эту ставку.', ephemeral: true });
+            return;
+        }
+        setBalance(session.userId, balance - totalCost);
+        await interaction.update({ embeds: [dkBuildMenuEmbed(session, '🎲 Крутим барабаны...')], components: [] });
+        await runDarknessSpinSequence(menuMsg, session);
+        return;
+    }
+}
+
+const DK_TEASER_FLAVOR_TEXT = [
+    'Барабаны замедляются... вроде бы джекпот?!',
+    'Ещё чуть-чуть и... нет, показалось.',
+    'Собирается что-то крупное...',
+];
+
+function dkFakeTeaserGrid() {
+    const teaserSymbols = ['🎃', '🕸️', '🕷️', '💀', '🃏', '⭐'];
+    const grid = [];
+    for (let i = 0; i < 30; i++) {
+        grid.push(teaserSymbols[Math.floor(Math.random() * teaserSymbols.length)]);
+    }
+    return grid;
+}
+
+function dkFormatTeaserGrid(emojiGrid, cols = 6, rows = 5) {
+    let out = '';
+    for (let r = 0; r < rows; r++) {
+        out += emojiGrid.slice(r * cols, r * cols + cols).join(' ') + '\n';
+    }
+    return out;
+}
+
+async function runDarknessSpinSequence(menuMsg, session) {
+    const teaserCount = 2 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < teaserCount; i++) {
+        const fakeGrid = dkFakeTeaserGrid();
+        await menuMsg.edit({
+            embeds: [
+                new EmbedBuilder()
+                    .setColor(0xffaa00)
+                    .setTitle('🎃 Darkness — казино')
+                    .setDescription(`${dkFormatTeaserGrid(fakeGrid)}\n_${DK_TEASER_FLAVOR_TEXT[i % DK_TEASER_FLAVOR_TEXT.length]}_`),
+            ],
+            components: [],
+        });
+        await sleep(700);
+    }
+
+    const stats = getStats(session.userId);
+    const result = dkEvaluateBaseSpin(session.bet, stats.casinoSpinsTotal || 0, {
+        scatterWeightMultiplier: session.doubleChance ? DK_ANTE_SCATTER_MULT : 1,
+    });
+    stats.casinoSpinsTotal = (stats.casinoSpinsTotal || 0) + 1;
+
+    const balanceBefore = getBalance(session.userId);
+    setBalance(session.userId, balanceBefore + result.totalWin);
+    saveLists();
+
+    const resultText = result.totalWin > 0
+        ? `🎉 Выигрыш: **${result.totalWin} 🪙**`
+        : '😔 Совпадений не было.';
+
+    await menuMsg.edit({
+        embeds: [
+            new EmbedBuilder()
+                .setColor(result.totalWin > 0 ? 0x00ff00 : 0xff0000)
+                .setTitle('🎃 Darkness — казино')
+                .setDescription(`${dkFormatBaseGrid(result.grid)}\n${resultText}`),
+        ],
+        components: [],
+    });
+
+    await sleep(1500);
+
+    if (result.freeSpinsAwarded > 0) {
+        session.bonusState = dkCreateBonusState(session.bet);
+        await menuMsg.edit({
+            embeds: [dkBuildMenuEmbed(session, `⭐ ${result.scatterCount} скатера! Запускаю ${result.freeSpinsAwarded} фриспинов...`)],
+            components: [],
+        });
+        await runDarknessBonusSequence(menuMsg, session);
+        return;
+    }
+
+    await menuMsg.edit({ embeds: [dkBuildMenuEmbed(session)], components: dkBuildMenuComponents(session) });
+}
+
+async function runDarknessBonusSequence(menuMsg, session) {
+    while (session.bonusState.spinsLeft > 0) {
+        await sleep(1200);
+        const step = dkSpinBonusRound(session.bonusState);
+
+        let extra = '';
+        if (step.newlyLocked.length > 0) {
+            extra += `\n🥷 Культист занял точку пентаграммы! (+${step.newlyLocked.length * 2} фриспинов)`;
+        }
+        if (step.megaJustTriggered) {
+            extra += `\n\n🔥🔥 ПЕНТАГРАММА СОБРАНА! Мгновенно +${step.instantBonusWin} 🪙, оставшиеся спины ×100!`;
+        }
+
+        await menuMsg.edit({
+            embeds: [
+                new EmbedBuilder()
+                    .setColor(0x8b0000)
+                    .setTitle('🔮 Darkness — бонус-раунд')
+                    .setDescription(
+                        `${dkFormatBonusGrid(step.grid)}\n` +
+                        `Спинов осталось: ${step.spinsLeft} | Пентаграмма: ${step.pentagramProgress}/5\n` +
+                        `Выигрыш за спин: ${step.spinWin} 🪙 | Всего в бонусе: ${step.totalWin} 🪙` +
+                        extra
+                    ),
+            ],
+            components: [],
+        });
+    }
+
+    const totalBonusWin = session.bonusState.totalWin;
+    const balance = getBalance(session.userId);
+    setBalance(session.userId, balance + totalBonusWin);
+    saveLists();
+    session.bonusState = null;
+
+    await sleep(1000);
+    await menuMsg.edit({
+        embeds: [dkBuildMenuEmbed(session, `🏁 Бонус завершён! Итого получено: **${totalBonusWin} 🪙**`)],
+        components: dkBuildMenuComponents(session),
+    });
+}
+
 // Вставь сюда 10+ ссылок на гифки для победы
 const WIN_GIFS = [
     'https://cdn.discordapp.com/emojis/1540807221707939860.webp?size=96',
@@ -1260,6 +1806,7 @@ client.on('messageCreate', async (message) => {
                    '`!ttt @соперник [ставка]` / `!battleship @соперник` — игры против челиксов\n' +
                    '`!casino <ставка>` — слоты 777 (КД: 30 секунд!)\n' +
                    '`!casino bonus <ставка>` — бонус-раунд из 10 спинов (без КД)\n' +
+                   '`!casino darkness <ставка>` — второй вид слотов (кнопки, скатеры, пентаграмма)\n' +
                    '`!blackjack <ставка>` / `!duel @соперник <ставка>` — блэкджек / дуэль\n' +
                    '`!case [id]` — список кейсов / открыть кейс (лимит: 15 за 5 мин)\n' +
                    '`!inventory [@человек]` — посмотреть свои или чужие скины оружия\n' +
@@ -3625,6 +4172,12 @@ startTurnTimer(); // запускаем таймер на самый первы�
 
    
         
+        // ---- !casino darkness <ставка> (второе казино, Sugar Rush → Darkness) ----
+    if (message.content.startsWith('!casino darkness')) {
+        await handleCasinoDarkness(message);
+        return;
+    }
+
         // ---- !casino bonus <ставка> (10 бесплатных прокруток Sugar Rush) ----
     const BONUS_BUY_COST_MULTIPLIER = 20;
     const BONUS_SPINS_COUNT = 10;
