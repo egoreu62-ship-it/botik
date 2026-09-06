@@ -533,7 +533,7 @@ const DK_BASE_SYMBOLS = {
     SPIDER:  { emoji: '🕷️', weight: 4  },
     REAPER:  { emoji: '💀', weight: 2  },
     WILD:    { emoji: '🃏', weight: 1.2 },
-    SCATTER: { emoji: '⭐', weight: 2  },
+    SCATTER: { emoji: '⭐', weight: 0.7  },
 };
 
 const DK_CLUSTER_PAYOUTS = {
@@ -543,7 +543,7 @@ const DK_CLUSTER_PAYOUTS = {
     REAPER:  { 5: 2.88, 8: 7.20, 12: 19.8, 18: 79.2 },
 };
 
-const DK_MEASURED_BASELINE_RTP = 0.896;
+const DK_MEASURED_BASELINE_RTP = 1.0947;
 const DK_SCATTER_FREESPINS = 10;
 const DK_SCATTER_TRIGGER_COUNT = 3;
 
@@ -591,7 +591,7 @@ const DK_LOYALTY_C = 0.15;
 
 function dkComputeDynamicMultiplier(userTotalSpins, baselineRtp) {
     const n = Math.max(0, userTotalSpins);
-    const targetRtp = 1 + DK_LOYALTY_C / (n + 1);
+    const targetRtp = 0.98 + DK_LOYALTY_C / (n + 1);
     return targetRtp / baselineRtp;
 }
 
@@ -645,7 +645,7 @@ const DK_BONUS_SYMBOLS = {
     REAPER:   { emoji: '💀', weight: 8  },
     WILD:     { emoji: '🃏', weight: 4  },
     PAINTING: { emoji: '🖼️', weight: 2  },
-    CULTIST:  { emoji: '🥷', weight: 6  },
+    CULTIST:  { emoji: '🥷', weight: 2.2  },
 };
 
 const DK_BONUS_CLUSTER_PAYOUTS = {
@@ -659,7 +659,7 @@ const DK_BONUS_CLUSTER_PAYOUTS = {
 
 const DK_CULTIST_FREESPINS_PER_LOCK = 2;
 const DK_MEGA_BONUS_INSTANT_WIN_MULT = 10;
-const DK_MEGA_BONUS_REMAINING_MULT = 100;
+const DK_MEGA_BONUS_REMAINING_MULT = 25;
 const DK_MEGA_BONUS_HITRATE_BOOST = 2.0;
 
 function dkCreateBonusState(bet) {
