@@ -533,7 +533,7 @@ const DK_BASE_SYMBOLS = {
     SPIDER:  { emoji: '🕷️', weight: 4  },
     REAPER:  { emoji: '💀', weight: 2  },
     WILD:    { emoji: '🃏', weight: 1.2 },
-    SCATTER: { emoji: '⭐', weight: 0.7  },
+    SCATTER: { emoji: '⭐', weight: 3  },
 };
 
 const DK_CLUSTER_PAYOUTS = {
@@ -543,7 +543,7 @@ const DK_CLUSTER_PAYOUTS = {
     REAPER:  { 5: 2.88, 8: 7.20, 12: 19.8, 18: 79.2 },
 };
 
-const DK_MEASURED_BASELINE_RTP = 1.0947;
+const DK_MEASURED_BASELINE_RTP = 0.896;
 const DK_SCATTER_FREESPINS = 10;
 const DK_SCATTER_TRIGGER_COUNT = 3;
 
@@ -591,7 +591,7 @@ const DK_LOYALTY_C = 0.15;
 
 function dkComputeDynamicMultiplier(userTotalSpins, baselineRtp) {
     const n = Math.max(0, userTotalSpins);
-    const targetRtp = 0.98 + DK_LOYALTY_C / (n + 1);
+    const targetRtp = 1 + DK_LOYALTY_C / (n + 1);
     return targetRtp / baselineRtp;
 }
 
@@ -645,7 +645,7 @@ const DK_BONUS_SYMBOLS = {
     REAPER:   { emoji: '💀', weight: 8  },
     WILD:     { emoji: '🃏', weight: 4  },
     PAINTING: { emoji: '🖼️', weight: 2  },
-    CULTIST:  { emoji: '🥷', weight: 2.2  },
+    CULTIST:  { emoji: '🥷', weight: 6  },
 };
 
 const DK_BONUS_CLUSTER_PAYOUTS = {
@@ -659,7 +659,7 @@ const DK_BONUS_CLUSTER_PAYOUTS = {
 
 const DK_CULTIST_FREESPINS_PER_LOCK = 2;
 const DK_MEGA_BONUS_INSTANT_WIN_MULT = 10;
-const DK_MEGA_BONUS_REMAINING_MULT = 25;
+const DK_MEGA_BONUS_REMAINING_MULT = 100;
 const DK_MEGA_BONUS_HITRATE_BOOST = 2.0;
 
 function dkCreateBonusState(bet) {
@@ -1100,8 +1100,8 @@ const HF_CONFIG = {
         MARGARITA:{ emoji: '🍹', weight: 3 },
     },
     WILD_WEIGHT: 3,
-    SCATTER_WEIGHT: 1.8,          // вес скаттера на разрешённых барабанах (0,2,4)
-    SCATTER_WEIGHT_ANTE: 3.4,     // ×2 при Ante Bet
+    SCATTER_WEIGHT: 2.2,          // вес скаттера на разрешённых барабанах (0,2,4)
+    SCATTER_WEIGHT_ANTE: 4.4,     // ×2 при Ante Bet
     WILD_MULT_WEIGHTS: { 2: 60, 3: 30, 5: 10 }, // распределение множителя Wild
     SCATTER_REELS: [0, 2, 4],
     SCATTER_TRIGGER_INSTANT_WIN: 3,   // ×3 от ставки мгновенно при 3 скаттерах
@@ -1110,7 +1110,7 @@ const HF_CONFIG = {
     ANTE_COST_MULT: 1.4,          // +40% к стоимости спина
     ANTE_SCATTER_MULT: 2,         // удвоенный шанс скаттера
     BONUS_BUY_MULTIPLIER: 100,    // цена покупки бонуса = ставка × 100
-    MAX_WIN_MULTIPLIER: 1000,     // потолок ×5000 от ставки
+    MAX_WIN_MULTIPLIER: 5000,     // потолок ×5000 от ставки
     MAX_STICKY_WILDS: 10,         // предохранитель от переполнения сетки залипшими Wild
     MIN_BET: 100,
 };
@@ -1946,15 +1946,7 @@ setInterval(async () => {
                 const randomItem = MARKET_ITEMS[Math.floor(Math.random() * MARKET_ITEMS.length)];
                 child.desire = randomItem.id;
                 child.desireExpires = now + (2 * 60 * 60 * 1000);
-
-                try {
-                    client.guilds.fetch(GUILD_ID).then(guild => {
-                        guild.channels.fetch(currentVoiceChannelId).then(channel => {
-                            const [parent1, parent2] = familyKey.split('_');
-                            channel.send(`👶 **Тамагочи:** Ребенок **${child.name}** у родителей <@${parent1}> and <@${parent2}> капризничает и просит: ${randomItem.name}! У вас есть 2 часа, чтобы дать ему это командой \`!givekid ${child.name} ${randomItem.id}\`!`);
-                        }).catch(() => {});
-                    }).catch(() => {});
-                } catch (e) {}
+                // Уведомление в чат убрано — проверить каприз можно через !family
             }
         });
     }
@@ -2436,6 +2428,7 @@ client.on('messageCreate', async (message) => {
                     '`!givekid <имя> <предмет>` — дать ребенку вещь/игрушку (выполнить его каприз)\n' +
                     '`!breastfeed <имя>` — бесплатно покормить младенца грудью (только маме, КД: 15 мин)\n' +
                     '`!renamekid <старое имя> = <новое имя>` — переименовать (нужно согласие супруга)\n' +
+                    '`!killkid <имя>` — тёмный сайд-квест (60% шанс успеха, КД 10 мин)\n' +
                     '`!kindergarten/!school/!walk <имя>` — развитие и прогулки с ребенком\n' +
                     '`!weight [@человек]` — параметры тела и **твоя текущая сытость**\n' +
                     '`!eat <предмет>` — поесть самому (если сытость упадет до 0 — начнется голодная смерть!)\n' +
@@ -3296,6 +3289,84 @@ client.on('messageCreate', async (message) => {
 
         replyText += `\n📊 **Статы ${child.name}:** Сытость: [${child.satiety}/100], Счастье: [${child.happiness}/100]`;
         message.reply(replyText);
+        return;
+    }
+
+    // ---- !killkid <имя> (тёмный сайд-квест) ----
+    if (message.content.startsWith('!killkid')) {
+        const childName = message.content.slice(9).trim();
+        const partnerId = marriages[message.author.id];
+
+        if (!partnerId) {
+            message.reply('Нужно быть в браке!');
+            return;
+        }
+
+        const familyKey = [message.author.id, partnerId].sort().join('_');
+        const familyChildren = children[familyKey] || [];
+        const childIndex = familyChildren.findIndex(c => c.name.toLowerCase() === childName.toLowerCase());
+
+        if (childIndex === -1) {
+            message.reply('Не нашёл ребёнка с таким именем.');
+            return;
+        }
+
+        const now = Date.now();
+        const KILLKID_CD_MS = 10 * 60 * 1000;
+        if (!global.killkidCooldowns) global.killkidCooldowns = {};
+        if (global.killkidCooldowns[familyKey] && now - global.killkidCooldowns[familyKey] < KILLKID_CD_MS) {
+            const remaining = Math.ceil((KILLKID_CD_MS - (now - global.killkidCooldowns[familyKey])) / 60000);
+            message.reply(`⏳ Слишком рано для нового "сайд-квеста". Подожди ~${remaining} мин.`);
+            return;
+        }
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('killkid_confirm').setLabel('🔪 Довести дело до конца').setStyle(ButtonStyle.Danger),
+            new ButtonBuilder().setCustomId('killkid_cancel').setLabel('❌ Передумать').setStyle(ButtonStyle.Secondary)
+        );
+
+        const questMsg = await message.reply({
+            content: `🌑 **Тёмный сайд-квест**\n\nТы стоишь над колыбелью **${familyChildren[childIndex].name}**... Пути назад может не быть. Действовать?`,
+            components: [row]
+        });
+
+        try {
+            const confirmation = await questMsg.awaitMessageComponent({
+                componentType: ComponentType.Button,
+                time: 30000,
+                filter: (i) => i.user.id === message.author.id
+            });
+
+            global.killkidCooldowns[familyKey] = now;
+
+            if (confirmation.customId === 'killkid_cancel') {
+                await confirmation.update({ content: '😮‍💨 Ты передумал(а) в последний момент.', components: [] });
+                return;
+            }
+
+            const success = Math.random() < 0.6;
+
+            if (success) {
+                const removedChild = familyChildren.splice(childIndex, 1)[0];
+                saveLists();
+
+                const reward = 5000;
+                setBalance(message.author.id, getBalance(message.author.id) + reward);
+                saveLists();
+
+                await confirmation.update({
+                    content: `🩸 Квест завершён... **${removedChild.name}** больше нет в семье.\n💰 "Награда" за молчание: ${reward} 🪙`,
+                    components: []
+                });
+            } else {
+                await confirmation.update({
+                    content: '⚡ Что-то пошло не так — совесть (или соседи) не дали довести дело до конца. Ребёнок в порядке.',
+                    components: []
+                });
+            }
+        } catch (e) {
+            await questMsg.edit({ content: '⏱️ Квест провален — ты слишком долго колебался(ась).', components: [] }).catch(() => {});
+        }
         return;
     }
 
@@ -4915,153 +4986,18 @@ startTurnTimer(); // запускаем таймер на самый первы�
      
      
         
-        // ---- !casino <ставка> (Sugar Rush 5x5 + Секретный Винрейт) ----
-    if (message.content.startsWith('!casino')) {
-        // Пропускаем бонус-бай
-        if (message.content.startsWith('!casino bonus')) return; 
-
-        const args = message.content.split(' ');
-        const bet = parseInt(args[1]); // Исправил на args[1], чтобы ставка считывалась корректно!
-
-        if (!bet || bet <= 0) {
-            message.reply('Напиши так: `!casino 100` (ставка фишками)');
-            return;
-        }
-
-        const balance = getBalance(message.author.id);
-        if (bet > balance) {
-            message.reply(`Недостаточно фишек! У тебя: ${balance} 🪙`);
-            return;
-        }
-
-        let dynamicMaxBet = Math.floor(500 + (balance * 0.10));
-        if (bet > dynamicMaxBet) {
-            message.reply(`❌ Твой лимит ставки сейчас — не больше ${dynamicMaxBet} 🪙! (Лимит растёт вместе с балансом)`);
-            return;
-        }
-
-        // Проверка кулдауна (30 секунд)
-        const userId = message.author.id;
-        const now = Date.now();
-        const CASINO_CD_MS = 30 * 1000; 
-
-        if (casinoCooldowns.has(userId)) {
-            const expirationTime = casinoCooldowns.get(userId) + CASINO_CD_MS;
-            if (now < expirationTime) {
-                const timeLeft = Math.ceil((expirationTime - now) / 1000);
-                message.reply(`⏳ Крутить казик можно раз в 30 секунд! Подожди ещё **${timeLeft} сек.**`);
-                return;
-            }
-        }
-        casinoCooldowns.set(userId, now);
-
-        const houseEdgeRoll = Math.random();
-        let grid;
-
-                if (houseEdgeRoll < 0.25) {
-            // Принудительный проигрыш — пересоздаем сетку, пока на ней не будет 0 совпадений
-            do {
-                grid = generateSugarGrid();
-            } while (findSugarClusters(grid).length > 0);
-        } else {
-            // Обычный рандомный спин
-            grid = generateSugarGrid();
-        }
-
-        const spinMsg = await message.reply({
-            embeds: [new EmbedBuilder()
-                .setColor(0x5865F2)
-                .setTitle('🎰 Казино Sugar Rush — Сетка 5x5')
-                .setDescription(formatSugarGrid(grid) + '\n\nПроверяем кластеры...')]
-        });
-
-        await sleep(1000);
-
-        let totalWinnings = 0;
-        let cascadeIndex = 0;
-        let log = '';
-
-        // Исправленный цикл каскадных падений кластеров Sugar Rush
-        while (cascadeIndex < CASCADE_MAX_STEPS) {
-            const clusters = findSugarClusters(grid);
-            if (clusters.length === 0) break;
-
-            const multiplier = MULTIPLIER_TRAIL[Math.min(cascadeIndex, MULTIPLIER_TRAIL.length - 1)];
-            const toRemove = Array.from({ length: CASINO_SIZE }, () => Array(CASINO_SIZE).fill(false));
-
-            for (const cluster of clusters) {
-                const [firstR, firstC] = cluster[0];
-                const sym = grid[firstR][firstC];
-                const size = cluster.length;
-
-                // Рассчитываем коэффициент выплат через функцию
-                const payoutMult = getPayoutMultiplier(sym, size);
-                const stepWinnings = Math.floor(bet * payoutMult * multiplier);
-                totalWinnings += stepWinnings;
-
-                log += `Каскад ${cascadeIndex + 1}: ${sym} ×${size} — +${stepWinnings} 🪙 (множитель ×${multiplier})\n`;
-
-                for (const [cellR, cellC] of cluster) {
-                    toRemove[cellR][cellC] = true;
-                }
-            }
-
-            grid = collapseAndRefillSugar(grid, toRemove);
-            cascadeIndex++;
-
-            await spinMsg.edit({
-                embeds: [new EmbedBuilder()
-                    .setColor(0xffaa00)
-                    .setTitle('🍬 Казино — каскад (Сетка 5x5)')
-                    .setDescription(formatSugarGrid(grid) + `\n\n${log}\nНакоплено: ${totalWinnings} 🪙`)]
-            });
-
-            await sleep(1200);
-        }
-
-        // Потолок выигрыша за спин
-        const MAX_TOTAL_MULTIPLIER = 20;
-        if (totalWinnings > bet * MAX_TOTAL_MULTIPLIER) {
-            totalWinnings = bet * MAX_TOTAL_MULTIPLIER;
-        }
-
-        // Экономика: считаем чистую разницу (выигрыш минус ставка)
-        const netChange = totalWinnings - bet; 
-        setBalance(message.author.id, balance + netChange);
-
-        const isNetWin = totalWinnings > bet; 
-        const casinoStats = getStats(message.author.id);
-        if (isNetWin) casinoStats.casinoWins++; else casinoStats.casinoLosses++;
-        saveLists();
-        checkAchievements(message.author.id, message);
-
-        
-
-        // Текст результатов
-        let resultText = log ? `${log}\n` : '';
-        if (totalWinnings === 0) {
-            resultText += `😔 Совпадений не было. Проигрыш: **${bet}** 🪙`;
-        } else if (netChange < 0) {
-            resultText += `📉 **Убыточный каскад:** Собрано на ${totalWinnings} 🪙, но раунд ушёл в минус на **${Math.abs(netChange)}** 🪙`;
-        } else if (netChange === 0) {
-            resultText += `🤝 **В ноль:** Собрано фишек ровно на сумму твоей ставки (${totalWinnings} 🪙).`;
-        } else {
-            resultText += `🎉 **Чистый профит!** Собрано на ${totalWinnings} 🪙 (Прибыль: **+${netChange}** 🪙)`;
-        }
-
-        const gif = isNetWin
-            ? WIN_GIFS[Math.floor(Math.random() * WIN_GIFS.length)]
-            : LOSE_GIFS[Math.floor(Math.random() * LOSE_GIFS.length)];
-
-        await spinMsg.edit({
-            embeds: [new EmbedBuilder()
-                .setColor(isNetWin ? 0x00ff00 : totalWinnings > 0 ? 0xffaa00 : 0xff0000)
-                .setTitle('🍬 Казино — каскад (Сетка 5x5)')
-                .setDescription(`${formatSugarGrid(grid)}\n\n${resultText}\n\nБаланс: ${isUnlimited(message.author.id) ? '∞' : getBalance(message.author.id)} 🪙`)
-                .setImage(gif)]
-        });
+    // ---- !casino sugarrush <ставка> (полноценный Sugar Rush 7x7: Cluster Pays + Tumble + Multiplier Spots) ----
+    if (message.content.startsWith('!casino sugarrush')) {
+        await handleCasinoSugarRush(message);
         return;
     }
+
+    // ---- !casino <ставка> (обычный !casino теперь тоже открывает Sugar Rush) ----
+    if (message.content.startsWith('!casino')) {
+        await handleCasinoSugarRush(message);
+        return;
+    }
+
 
 
 
