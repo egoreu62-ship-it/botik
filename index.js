@@ -1896,34 +1896,6 @@ setInterval(async () => {
 // ==== Жизнедеятельность детей (Тамагочи-система) ====
 setInterval(async () => {
     const now = Date.now();
-        // ---- Естественный голод игроков ----
-    for (const userId in bodyStats) {
-        const pBody = bodyStats[userId];
-        if (typeof pBody.satiety !== 'number') pBody.satiety = 100;
-        
-        // Раз в 30 минут сытость игрока падает на 4 единицы
-        pBody.satiety = Math.max(0, pBody.satiety - 4);
-
-        // Если сытость на нуле, игрок стремительно худеет и истощается
-        if (pBody.satiety === 0) {
-            pBody.weight = Math.max(0, pBody.weight - 3);
-            
-            // Если вес падает ниже критического минимума — смерть от голода
-            if (pBody.weight <= WEIGHT_MIN) {
-                pBody.weight = WEIGHT_DEFAULT;
-                pBody.chest = 10; pBody.arms = 10; pBody.legs = 10; pBody.cardio = 10; pBody.satiety = 100;
-                setBalance(userId, Math.floor(getBalance(userId) / 2)); // Штраф половины фишек за смерть
-                 try {
-                    client.guilds.fetch(GUILD_ID).then(guild => {
-                        guild.channels.fetch(currentVoiceChannelId).then(channel => {
-                            channel.send(`💀 **Голодная смерть:** <@${userId}> забывал есть, его вес упал ниже критической отметки. Он истощился и умер. Воскрешение с базовыми статами, половина баланса потеряна...`);
-                        }).catch(() => {});
-                    }).catch(() => {});
-                } catch(e) {}
-
-            }
-        }
-    }
 
     
     for (const familyKey in children) {
@@ -2431,7 +2403,7 @@ client.on('messageCreate', async (message) => {
                     '`!killkid <имя>` — тёмный сайд-квест (60% шанс успеха, КД 10 мин)\n' +
                     '`!kindergarten/!school/!walk <имя>` — развитие и прогулки с ребенком\n' +
                     '`!weight [@человек]` — параметры тела и **твоя текущая сытость**\n' +
-                    '`!eat <предмет>` — поесть самому (если сытость упадет до 0 — начнется голодная смерть!)\n' +
+                    '`!eat <предмет>` — поесть самому (набирает вес и сытость)\n' +
                     '`!gym <chest|arms|legs|cardio>` — тренировка в спортзале (лимит: 5 занятий в час)',
             
             other: '**🔧 Разное**\n\n' +
@@ -3637,13 +3609,11 @@ client.on('messageCreate', async (message) => {
 
         saveLists();
 
-        // Проверка на смерть от веса
+        // Верхний предел веса — просто упираемся в потолок, без смерти
         if (body.weight > WEIGHT_MAX) {
-            message.reply(`💀 ${message.author} умер(ла) от ожирения (вес: ${Math.round(body.weight)} кг). Возрождение с базовыми параметрами...`);
-            body.weight = WEIGHT_DEFAULT;
-            body.chest = 10; body.arms = 10; body.legs = 10; body.cardio = 10; body.satiety = 100;
-            setBalance(message.author.id, Math.floor(getBalance(message.author.id) / 2));
+            body.weight = WEIGHT_MAX;
             saveLists();
+            message.reply(`⚠️ Больше не лезет! Ты достиг максимального веса (${WEIGHT_MAX} кг). Попробуй \`!gym cardio\`, чтобы сбросить.`);
             return;
         }
 
@@ -3707,16 +3677,10 @@ client.on('messageCreate', async (message) => {
 
         saveLists();
 
-        // Проверка на смерть от истощения
+        // Нижний предел веса — просто упираемся в минимум, без смерти
         if (body.weight < WEIGHT_MIN) {
-            message.reply(`💀 ${message.author} умер(ла) от истощения в спортзале (вес: ${Math.round(body.weight)} кг). Возрождение с базовыми параметрами...`);
-            body.weight = WEIGHT_DEFAULT;
-            body.chest = 10; body.arms = 10; body.legs = 10; body.cardio = 10; body.satiety = 100;
-            setBalance(userId, Math.floor(getBalance(userId) / 2));
+            body.weight = WEIGHT_MIN;
             saveLists();
-            // Сбрасываем тренировки при смерти
-            gymTracker.delete(userId);
-            return;
         }
 
         const partNames = { chest: '💪 Грудь', arms: '💪 Руки', legs: '🦵 Ноги', cardio: '🏃 Кардио (Выносливость)' };
