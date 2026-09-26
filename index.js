@@ -2361,6 +2361,7 @@ client.on('messageCreate', async (message) => {
             
             games: '**🎲 Игры, Казино и Оружейная лавка**\n\n' +
                    '`!kubik` — бросить кубик (1-6) | `!коктель <ингредиенты>` — рецепт коктейля\n' +
+                   '`!погода <город>` — погода в городе | `!новости <город>` — новости про город\n' +
                    '`!67` — секретная мем-команда\n' +
                    '`!ttt @соперник [ставка]` / `!battleship @соперник` — игры против челиксов\n' +
                    '`!casino <ставка>` — слоты 777 (КД: 30 секунд!)\n' +
@@ -2811,6 +2812,97 @@ client.on('messageCreate', async (message) => {
             message.reply(`⏭ Голосование прошло (${currentVotes}/${humansInChannel}) — пропускаю трек`);
         } else {
             message.reply(`🗳️ Голос учтён: ${currentVotes}/${votesNeeded} нужно для пропуска`);
+        }
+        return;
+    }
+
+    // ---- !погода <город> ----
+    if (message.content.startsWith('!погода')) {
+        const city = message.content.slice(8).trim();
+        if (!city) {
+            message.reply('Напиши так: `!погода Москва`');
+            return;
+        }
+
+        try {
+            const geoRes = await fetch(
+                `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=ru&format=json`
+            );
+            const geoData = await geoRes.json();
+
+            if (!geoData.results || geoData.results.length === 0) {
+                message.reply(`Не нашёл город "${city}" 😕`);
+                return;
+            }
+
+            const place = geoData.results[0];
+            const weatherRes = await fetch(
+                `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&timezone=auto`
+            );
+            const weatherData = await weatherRes.json();
+            const current = weatherData.current;
+
+            const WEATHER_CODES = {
+                0: '☀️ Ясно', 1: '🌤️ Преимущественно ясно', 2: '⛅ Переменная облачность', 3: '☁️ Пасмурно',
+                45: '🌫️ Туман', 48: '🌫️ Изморозь',
+                51: '🌦️ Лёгкая морось', 53: '🌦️ Морось', 55: '🌧️ Сильная морось',
+                61: '🌧️ Небольшой дождь', 63: '🌧️ Дождь', 65: '🌧️ Сильный дождь',
+                71: '🌨️ Небольшой снег', 73: '🌨️ Снег', 75: '❄️ Сильный снег',
+                80: '🌦️ Ливни', 81: '🌧️ Сильные ливни', 82: '⛈️ Очень сильные ливни',
+                95: '⛈️ Гроза', 96: '⛈️ Гроза с градом', 99: '⛈️ Сильная гроза с градом'
+            };
+            const description = WEATHER_CODES[current.weather_code] || '🌡️ Неизвестно';
+
+            message.reply(
+                `**${description}**\n` +
+                `📍 ${place.name}, ${place.country}\n\n` +
+                `🌡️ Температура: ${current.temperature_2m}°C (ощущается как ${current.apparent_temperature}°C)\n` +
+                `💧 Влажность: ${current.relative_humidity_2m}%\n` +
+                `💨 Ветер: ${current.wind_speed_10m} км/ч\n` +
+                `🌧️ Осадки: ${current.precipitation} мм`
+            );
+        } catch (error) {
+            console.error('Ошибка !погода:', error);
+            message.reply('Не получилось узнать погоду 😕');
+        }
+        return;
+    }
+
+    // ---- !новости <город> ----
+    if (message.content.startsWith('!новости')) {
+        const city = message.content.slice(9).trim();
+        if (!city) {
+            message.reply('Напиши так: `!новости Москва`');
+            return;
+        }
+
+        try {
+            const rssRes = await fetch(
+                `https://news.google.com/rss/search?q=${encodeURIComponent(city)}&hl=ru&gl=RU&ceid=RU:ru`
+            );
+            const rssText = await rssRes.text();
+
+            const itemMatches = [...rssText.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, 5);
+
+            if (itemMatches.length === 0) {
+                message.reply(`Не нашёл новостей про "${city}" 😕`);
+                return;
+            }
+
+            let newsText = `**📰 Новости: ${city}**\n\n`;
+            itemMatches.forEach((match, i) => {
+                const itemXml = match[1];
+                const titleMatch = itemXml.match(/<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/);
+                const linkMatch = itemXml.match(/<link>(.*?)<\/link>/);
+                const title = titleMatch ? titleMatch[1] : 'Без названия';
+                const link = linkMatch ? linkMatch[1] : '';
+                newsText += `${i + 1}. [${title}](${link})\n`;
+            });
+
+            message.reply(newsText);
+        } catch (error) {
+            console.error('Ошибка !новости:', error);
+            message.reply('Не получилось найти новости 😕');
         }
         return;
     }
