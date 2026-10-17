@@ -45,6 +45,9 @@ const client = new Client({
     partials: [Partials.Channel]
 });
 
+const { LavalinkManager } = require('lavalink-client');
+client.on('raw', (d) => client.lavalink?.sendRawData(d));
+
 const fs = require('fs');
 
 const GUILD_ID = process.env.GUILD_ID;
@@ -1979,6 +1982,27 @@ setInterval(async () => {
 
 client.once('ready', async () => {
     console.log(`🤖 Бот запущен: ${client.user.tag}`);
+
+        try {
+        client.lavalink = new LavalinkManager({
+            nodes: [{
+                id: 'main',
+                host: '127.0.0.1',
+                port: 2333,
+                authorization: process.env.LAVALINK_PASSWORD
+            }],
+            sendToShard: (guildId, payload) => client.guilds.cache.get(guildId)?.shard?.send(payload),
+            autoSkip: true,
+            client: { id: client.user.id, username: client.user.username }
+        });
+
+        client.lavalink.nodeManager.on('connect', (node) => console.log(`🟢 Lavalink-нода "${node.id}" подключена`));
+        client.lavalink.nodeManager.on('error', (node, error) => console.error(`🔴 Ошибка Lavalink-ноды "${node.id}":`, error));
+
+        await client.lavalink.init(client.user);
+    } catch (error) {
+        console.error('Не удалось инициализировать Lavalink:', error);
+    }
 
     try {
         const clientID = await play.getFreeClientID();
