@@ -1724,6 +1724,315 @@ function formatHand(hand) {
 
 let connection;
 
+
+// ==== LAVALINK: переключатель и вспомогательные функции ====
+const USE_LAVALINK = true; // false = вернуться на старый плеер (play-dl)
+let lavalinkNodeReady = false;
+
+function lavaRequesterId(track) {
+    const r = track && track.requester;
+    if (r && typeof r === 'object') return r.id ?? null;
+    return r ?? null;
+}
+
+function setIdlePresence() {
+    client.user.setPresence({ status: 'online', activities: [{ name: 'в войсе 🎧' }] });
+}
+
+async function waitForLavalinkNode(ms = 20000) {
+    const start = Date.now();
+    while (!lavalinkNodeReady && Date.now() - start < ms) await sleep(500);
+    return lavalinkNodeReady;
+}
+
+// Создаёт плеер в голосовом канале (если его нет) и подключает; бот сидит в канале 24/7
+async function ensureMusicPlayer() {
+    if (!client.lavalink) throw new Error('Lavalink не инициализирован');
+    if (!(await waitForLavalinkNode())) throw new Error('Lavalink-нода недоступна');
+
+    let player = client.lavalink.getPlayer(GUILD_ID);
+    if (!player) {
+        player = client.lavalink.createPlayer({
+            guildId: GUILD_ID,
+            voiceChannelId: currentVoiceChannelId,
+            selfDeaf: true,
+            selfMute: false,
+            volume: currentVolume
+        });
+    }
+    if (!player.connected) await player.connect();
+    return player;
+}
+
+// Ищет трек/плейлист и ставит в очередь. opts: { skipMatch, random }
+async function lavaEnqueue(query, userId, opts = {}) {
+    const player = await ensureMusicPlayer();
+    const isUrl = /^https?:\/\//i.test(query);
+
+    if (!isUrl) {
+        const isGibberish = query.length > 6 && !query.includes(' ') && !/[aeiouyаеиоуыэюяё]/i.test(query);
+        if (isGibberish) return { error: '❌ Похоже на бред. Напиши нормальное название песни!' };
+    }
+
+    const res = await player.search(isUrl ? { query } : { query, source: 'scsearch' }, { id: userId });
+    if (!res || res.loadType === 'error' || res.loadType === 'empty' || !res.tracks || !res.tracks.length) {
+        return { error: 'Ничего не нашёл 😕' };
+    }
+
+    let title;
+    if (res.loadType === 'playlist') {
+        player.queue.add(res.tracks);
+        const plName = (res.playlist && (res.playlist.name || res.playlist.title)) || 'без названия';
+        title = `плейлист «${plName}» (${res.tracks.length} треков)`;
+    } else {
+        const track = opts.random
+            ? res.tracks[Math.floor(Math.random() * res.tracks.length)]
+            : res.tracks[0];
+
+        if (!isUrl && !opts.skipMatch && !opts.random) {
+            const found = (track.info.title || '').toLowerCase();
+            const words = query.toLowerCase().split(/\s+/);
+            if (!words.some(w => found.includes(w))) {
+                return { error: '❌ SoundCloud выдал случайный трек. Напиши точнее!' };
+            }
+        }
+        player.queue.add(track);
+        title = track.info.title;
+    }
+
+    if (!player.playing && !player.paused) await player.play();
+    return { title, player };
+}
+
+async function handleLavalinkCommand(message, cmd) {
+    const userId = message.author.id;
+    const args = message.content.split(' ').slice(1).join(' ').trim();
+    const getP = () => (client.lavalink ? client.lavalink.getPlayer(GUILD_ID) : null);
+
+    try {
+        // ---- !play ----
+        if (cmd === '!play') {
+            if (!args) {
+                await message.reply('Напиши так: `!play название песни`, `!play ссылка на SoundCloud` или `!play ссылка на YouTube`');
+                return;
+            }
+            const r = await lavaEnqueue(args, userId);
+            await message.reply(r.error ? r.error : `🎵 Добавлено в очередь: ${r.title}`);
+            return;
+        }
+
+        // ---- !sosi ----
+        if (cmd === '!sosi') {
+            const attachment = new AttachmentBuilder('./assets/sosi.png');
+            message.reply({ files: [attachment] }).catch(() => {});
+            const r = await lavaEnqueue('MORGENSHTERN Пососи', userId, { skipMatch: true });
+            if (r.error) await message.reply('Трек не нашёл, но картинку кину 🤷');
+            return;
+        }
+
+        // ---- !67 ----
+        if (cmd === '!67') {
+            message.channel.send('67');
+            await lavaEnqueue('Газан 67', userId, { skipMatch: true });
+            return;
+        }
+
+        // ---- !anime ----
+        if (cmd === '!anime') {
+            const r = await lavaEnqueue('anime opening', userId, { random: true });
+            await message.reply(r.error ? r.error : `🎌 Добавлено: ${r.title}`);
+            return;
+        }
+
+        // ---- !test ----
+        if (cmd === '!test') {
+            await message.reply('🧪 В режиме Lavalink тестовый сигнал не нужен — проверь музыку через `!play`.');
+            return;
+        }
+
+        const p = getP();
+
+        // ---- !queue ----
+        if (cmd === '!queue') {
+            const cur = p && p.queue.current;
+            const tracks = p ? p.queue.tracks : [];
+            if (!cur && tracks.length === 0) {
+                await message.reply('Очередь пуста, ничего не играет 😴');
+                return;
+            }
+            let text = '';
+            if (cur) text += `▶️ Сейчас играет: **${cur.info.title}**\n\n`;
+            if (tracks.length > 0) {
+                text += '**Далее в очереди:**\n';
+                tracks.slice(0, 10).forEach((t, i) => { text += `${i + 1}. ${t.info.title}\n`; });
+                if (tracks.length > 10) text += `...и ещё ${tracks.length - 10} треков`;
+            } else {
+                text += '_(очередь пуста, дальше играть нечему)_';
+            }
+            await message.reply(text);
+            return;
+        }
+
+        // ---- !pause ----
+        if (cmd === '!pause') {
+            if (!p || !p.playing) { await message.reply('Сейчас ничего не играет 🤷'); return; }
+            await p.pause();
+            await message.reply('⏸ Пауза');
+            return;
+        }
+
+        // ---- !resume ----
+        if (cmd === '!resume') {
+            if (!p || !p.paused) { await message.reply('Сейчас нет паузы 🤷'); return; }
+            await p.resume();
+            await message.reply('▶️ Продолжаю');
+            return;
+        }
+
+        // ---- !volume ----
+        if (cmd === '!volume') {
+            const value = parseInt(args, 10);
+            if (!args) {
+                await message.reply(`Текущая громкость: ${currentVolume}%. Напиши \`!volume 50\`, чтобы изменить.`);
+                return;
+            }
+            if (isNaN(value) || value < 0 || value > 200) {
+                await message.reply('Укажи число от 0 до 200, например `!volume 80`');
+                return;
+            }
+            currentVolume = value;
+            if (p) await p.setVolume(value);
+            await message.reply(`🔊 Громкость: ${currentVolume}%`);
+            return;
+        }
+
+        // ---- !loop ----
+        if (cmd === '!loop') {
+            if (!p) { await message.reply('Сейчас ничего не играет 🤷'); return; }
+            const enable = p.repeatMode !== 'track';
+            await p.setRepeatMode(enable ? 'track' : 'off');
+            await message.reply(enable ? '🔁 Повтор трека включён' : '➡️ Повтор трека выключен');
+            return;
+        }
+
+        // ---- !nowplaying ----
+        if (cmd === '!nowplaying') {
+            const cur = p && p.queue.current;
+            if (!cur || (!p.playing && !p.paused)) { await message.reply('Сейчас ничего не играет 🤷'); return; }
+
+            const elapsedSec = Math.floor(p.position / 1000);
+            const totalSec = cur.info.isStream ? null : Math.floor(cur.info.duration / 1000);
+            let bar = '▬'.repeat(20);
+            if (totalSec) {
+                const filled = Math.min(20, Math.round((elapsedSec / totalSec) * 20));
+                bar = '▬'.repeat(filled) + '🔘' + '▬'.repeat(Math.max(0, 20 - filled));
+            }
+            await message.reply(
+                `🎵 **${cur.info.title}**\n${bar}\n` +
+                `${formatTime(elapsedSec)} / ${formatTime(totalSec)}  •  🔊 ${currentVolume}%`
+            );
+            return;
+        }
+
+        // ---- !skip ----
+        if (cmd === '!skip') {
+            const cur = p && p.queue.current;
+            if (!cur) { await message.reply('Сейчас ничего не играет 🤷'); return; }
+
+            const requesterId = lavaRequesterId(cur);
+            const requesterIsProtected = requesterId && whitelist.includes(String(requesterId));
+            const canSkip = !requesterIsProtected || message.author.id === String(requesterId);
+            if (!canSkip) {
+                await message.reply('❌ Этот трек защищён — скипнуть его может только тот, кто включил.');
+                return;
+            }
+            await p.skip(0, false);
+            await message.reply('⏭ Пропускаю трек');
+            return;
+        }
+
+        // ---- !stop ----
+        if (cmd === '!stop') {
+            if (p) {
+                await p.stopPlaying(true, false);
+                await p.setRepeatMode('off');
+            }
+            setIdlePresence();
+            await message.reply('⏹ Останавливаю музыку');
+            return;
+        }
+
+        // ---- !like ----
+        if (cmd === '!like') {
+            const cur = p && p.queue.current;
+            if (!cur || !cur.info.uri) { await message.reply('Сейчас ничего не играет, нечего лайкать 🤷'); return; }
+
+            if (!likes[userId]) likes[userId] = [];
+            if (likes[userId].some(t => t.url === cur.info.uri)) {
+                await message.reply('Этот трек уже у тебя в лайках ❤️');
+                return;
+            }
+            likes[userId].push({ title: cur.info.title, url: cur.info.uri });
+            saveLists();
+            await message.reply(`❤️ Добавлено в лайки: **${cur.info.title}**`);
+            return;
+        }
+
+        // ---- !radio ----
+        if (cmd === '!radio') {
+            const userLikes = likes[userId] || [];
+            if (userLikes.length === 0) {
+                await message.reply('У тебя пока нет лайкнутых треков. Полайкай что-нибудь через `!like`!');
+                return;
+            }
+            const shuffled = [...userLikes].sort(() => Math.random() - 0.5);
+            let added = 0;
+            for (const track of shuffled) {
+                try {
+                    const r = await lavaEnqueue(track.url, userId);
+                    if (!r.error) added++;
+                } catch (e) {
+                    console.error('Ошибка !radio для трека', track.title, e);
+                }
+            }
+            await message.reply(added > 0
+                ? `📻 Радио запущено: ${added} твоих любимых треков в очереди`
+                : 'Не получилось запустить радио 😕');
+            return;
+        }
+
+        // ---- !voteskip ----
+        if (cmd === '!voteskip') {
+            const cur = p && p.queue.current;
+            if (!cur) { await message.reply('Сейчас ничего не играет 🤷'); return; }
+
+            const voiceChannel = message.member && message.member.voice && message.member.voice.channel;
+            if (!voiceChannel) { await message.reply('Ты должен быть в голосовом канале, чтобы голосовать 🎙️'); return; }
+
+            const humansInChannel = voiceChannel.members.filter(m => !m.user.bot).size;
+            if (humansInChannel === 0) { await message.reply('В канале никого нет 🤷'); return; }
+
+            if (!global.voteskipVotes) global.voteskipVotes = new Set();
+            global.voteskipVotes.add(message.author.id);
+
+            const votesNeeded = Math.ceil(humansInChannel * 0.5);
+            const currentVotes = global.voteskipVotes.size;
+
+            if (currentVotes >= votesNeeded) {
+                global.voteskipVotes.clear();
+                await p.skip(0, false);
+                await message.reply(`⏭ Голосование прошло (${currentVotes}/${humansInChannel}) — пропускаю трек`);
+            } else {
+                await message.reply(`🗳️ Голос учтён: ${currentVotes}/${votesNeeded} нужно для пропуска`);
+            }
+            return;
+        }
+    } catch (error) {
+        console.error(`Ошибка Lavalink-команды ${cmd}:`, error);
+        await message.reply('Не получилось выполнить это 😕').catch(() => {});
+    }
+}
+
 // ==== Музыка ====
 const player = createAudioPlayer();
 const queue = [];
@@ -1883,7 +2192,7 @@ async function joinVoice() {
     }
 }
 setInterval(async () => {
-    if (!connection) return;
+    if (!connection && !(client.lavalink && client.lavalink.getPlayer(GUILD_ID))) return;
     try {
         const guild = await client.guilds.fetch(GUILD_ID);
         const channel = await guild.channels.fetch(currentVoiceChannelId);
@@ -1983,7 +2292,7 @@ setInterval(async () => {
 client.once('ready', async () => {
     console.log(`🤖 Бот запущен: ${client.user.tag}`);
 
-        try {
+            try {
         client.lavalink = new LavalinkManager({
             nodes: [{
                 id: 'main',
@@ -1996,8 +2305,35 @@ client.once('ready', async () => {
             client: { id: client.user.id, username: client.user.username }
         });
 
-        client.lavalink.nodeManager.on('connect', (node) => console.log(`🟢 Lavalink-нода "${node.id}" подключена`));
+        client.lavalink.nodeManager.on('connect', (node) => {
+            lavalinkNodeReady = true;
+            console.log(`🟢 Lavalink-нода "${node.id}" подключена`);
+        });
+        client.lavalink.nodeManager.on('disconnect', (node) => {
+            lavalinkNodeReady = false;
+            console.warn(`🟠 Lavalink-нода "${node.id}" отключилась`);
+        });
         client.lavalink.nodeManager.on('error', (node, error) => console.error(`🔴 Ошибка Lavalink-ноды "${node.id}":`, error));
+
+        client.lavalink.on('trackStart', (player, track) => {
+            if (global.voteskipVotes) global.voteskipVotes.clear();
+            client.user.setPresence({
+                status: 'online',
+                activities: [{ name: `🎵 ${(track && track.info && track.info.title) || 'Музыка'}` }]
+            });
+        });
+        client.lavalink.on('queueEnd', () => setIdlePresence());
+        client.lavalink.on('trackError', (player, track, payload) => {
+            console.error('❌ Ошибка трека:', track && track.info && track.info.title, payload && payload.exception ? payload.exception.message : payload);
+        });
+        client.lavalink.on('trackStuck', (player, track) => {
+            console.warn('⚠️ Трек завис:', track && track.info && track.info.title);
+        });
+        client.lavalink.on('playerDisconnect', () => {
+            if (!USE_LAVALINK) return;
+            console.log('⚠️ Плеер отключён от войса — переподключаюсь через 5 секунд');
+            setTimeout(() => ensureMusicPlayer().catch(e => console.error('Не удалось переподключить плеер:', e)), 5000);
+        });
 
         await client.lavalink.init(client.user);
     } catch (error) {
@@ -2017,7 +2353,16 @@ client.once('ready', async () => {
         activities: [{ name: 'в войсе 🎧' }]
     });
 
-    await joinVoice();
+        if (USE_LAVALINK) {
+        try {
+            await ensureMusicPlayer();
+            console.log('✅ Lavalink-плеер подключён к войсу');
+        } catch (error) {
+            console.error('Не удалось подключить Lavalink-плеер:', error);
+        }
+    } else {
+        await joinVoice();
+    }
 });
 
 client.on('guildMemberAdd', async (member) => {
@@ -2138,6 +2483,16 @@ client.on('messageCreate', async (message) => {
     }
 
     console.log(`📩 Сообщение от ${message.author.tag}: "${message.content}"`);
+
+
+        // ---- LAVALINK: музыкальные команды перехватываются здесь (старый код ниже остаётся запасным) ----
+    if (USE_LAVALINK) {
+        const lavaCmd = message.content.split(' ')[0];
+        if (['!play', '!sosi', '!67', '!anime', '!test', '!queue', '!pause', '!resume', '!volume', '!loop', '!nowplaying', '!skip', '!voteskip', '!stop', '!like', '!radio'].includes(lavaCmd)) {
+            await handleLavalinkCommand(message, lavaCmd);
+            return;
+        }
+    }
 
     // ---- !play <название или ссылка на SoundCloud> ----
     if (message.content.startsWith('!play ')) {
@@ -5892,6 +6247,88 @@ setInterval(refreshStatus, 5000);
 </body>
 </html>`);
 });
+
+// ==== API панели для режима Lavalink (идут раньше старых маршрутов и перехватывают их) ====
+if (USE_LAVALINK) {
+    const panelPlayer = () => (client.lavalink ? client.lavalink.getPlayer(GUILD_ID) : null);
+
+    app.get('/api/status', (req, res) => {
+        const p = panelPlayer();
+        const cur = p && p.queue.current;
+        res.json({
+            playing: !!(p && p.playing),
+            title: cur ? cur.info.title : null,
+            queueLength: p ? p.queue.tracks.length : 0,
+            loop: !!(p && p.repeatMode === 'track'),
+            volume: currentVolume
+        });
+    });
+
+    app.post('/api/play', async (req, res) => {
+        const query = req.body.query;
+        if (!query) return res.status(400).json({ error: 'query required' });
+        try {
+            const r = await lavaEnqueue(query, null);
+            if (r.error) return res.status(404).json({ error: r.error });
+            res.json({ ok: true, title: r.title });
+        } catch (error) {
+            console.error('Ошибка /api/play (Lavalink):', error);
+            res.status(500).json({ error: 'failed' });
+        }
+    });
+
+    app.post('/api/pause', async (req, res) => {
+        try { const p = panelPlayer(); if (p && p.playing) await p.pause(); res.json({ ok: true }); }
+        catch (e) { console.error(e); res.status(500).json({ error: 'failed' }); }
+    });
+    app.post('/api/resume', async (req, res) => {
+        try { const p = panelPlayer(); if (p && p.paused) await p.resume(); res.json({ ok: true }); }
+        catch (e) { console.error(e); res.status(500).json({ error: 'failed' }); }
+    });
+    app.post('/api/skip', async (req, res) => {
+        try { const p = panelPlayer(); if (p && p.queue.current) await p.skip(0, false); res.json({ ok: true }); }
+        catch (e) { console.error(e); res.status(500).json({ error: 'failed' }); }
+    });
+    app.post('/api/loop', async (req, res) => {
+        try {
+            const p = panelPlayer();
+            if (!p) return res.json({ ok: true, loop: false });
+            const enable = p.repeatMode !== 'track';
+            await p.setRepeatMode(enable ? 'track' : 'off');
+            res.json({ ok: true, loop: enable });
+        } catch (e) { console.error(e); res.status(500).json({ error: 'failed' }); }
+    });
+    app.post('/api/stop', async (req, res) => {
+        try {
+            const p = panelPlayer();
+            if (p) { await p.stopPlaying(true, false); await p.setRepeatMode('off'); }
+            setIdlePresence();
+            res.json({ ok: true });
+        } catch (e) { console.error(e); res.status(500).json({ error: 'failed' }); }
+    });
+    app.post('/api/volume', async (req, res) => {
+        const value = req.body.value;
+        if (typeof value !== 'number' || value < 0 || value > 200) return res.status(400).json({ error: 'invalid value' });
+        try {
+            currentVolume = value;
+            const p = panelPlayer();
+            if (p) await p.setVolume(value);
+            res.json({ ok: true });
+        } catch (e) { console.error(e); res.status(500).json({ error: 'failed' }); }
+    });
+    app.post('/api/move', async (req, res) => {
+        const { channelId } = req.body;
+        if (!channelId) return res.status(400).json({ error: 'channelId required' });
+        try {
+            currentVoiceChannelId = channelId;
+            const p = panelPlayer();
+            if (p) await p.changeVoiceState({ voiceChannelId: channelId });
+            else await ensureMusicPlayer();
+            res.json({ ok: true });
+        } catch (e) { console.error('Ошибка перемещения канала (Lavalink):', e); res.status(500).json({ error: 'failed' }); }
+    });
+}
+
 
 // API: статус
 app.get('/api/status', (req, res) => {
