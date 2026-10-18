@@ -10,6 +10,9 @@ const {
     ButtonStyle,
     ComponentType,
     EmbedBuilder,
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle,
     Partials
 } = require('discord.js');
 
@@ -539,7 +542,7 @@ const DK_BASE_SYMBOLS = {
     SPIDER:  { emoji: '🕷️', weight: 4  },
     REAPER:  { emoji: '💀', weight: 2  },
     WILD:    { emoji: '🃏', weight: 1.2 },
-    SCATTER: { emoji: '⭐', weight: 3  },
+    SCATTER: { emoji: '⭐', weight: 0.73 }, // шанс бонуса ~1 из 227 спинов
 };
 
 const DK_CLUSTER_PAYOUTS = {
@@ -549,7 +552,7 @@ const DK_CLUSTER_PAYOUTS = {
     REAPER:  { 5: 2.88, 8: 7.20, 12: 19.8, 18: 79.2 },
 };
 
-const DK_MEASURED_BASELINE_RTP = 0.896;
+const DK_MEASURED_BASELINE_RTP = 0.979; // замерено симуляцией для текущих весов
 const DK_SCATTER_FREESPINS = 10;
 const DK_SCATTER_TRIGGER_COUNT = 3;
 
@@ -593,11 +596,13 @@ function dkPayoutTierFor(table, symbol, count) {
 }
 
 // ---- Лояльти-множитель (та же формула для всех игроков, зависит только от их числа спинов) ----
-const DK_LOYALTY_C = 0.15;
+const DK_LOYALTY_C = 0.05; // бонус новичку к RTP базы: убывает с числом спинов
+const DK_BASE_TARGET_RTP = 0.62; // доля базовой игры в общем RTP (остальное — бонус)
+const DK_BONUS_SCALE = 2.17;     // масштаб выплат бонуса: средний бонус ≈ ×75 ставки (покупка за ×80 ≈ 94%)
 
 function dkComputeDynamicMultiplier(userTotalSpins, baselineRtp) {
     const n = Math.max(0, userTotalSpins);
-    const targetRtp = 1 + DK_LOYALTY_C / (n + 1);
+    const targetRtp = DK_BASE_TARGET_RTP + DK_LOYALTY_C / (n + 1);
     return targetRtp / baselineRtp;
 }
 
@@ -651,7 +656,7 @@ const DK_BONUS_SYMBOLS = {
     REAPER:   { emoji: '💀', weight: 8  },
     WILD:     { emoji: '🃏', weight: 4  },
     PAINTING: { emoji: '🖼️', weight: 2  },
-    CULTIST:  { emoji: '🥷', weight: 6  },
+    CULTIST:  { emoji: '🥷', weight: 2  }, // пентаграмма собирается редко
 };
 
 const DK_BONUS_CLUSTER_PAYOUTS = {
@@ -737,11 +742,11 @@ function dkSpinBonusRound(state) {
     if (!state.megaTriggered && state.lockedPentagramCells.size === DK_PENTAGRAM_CELLS.length) {
         state.megaTriggered = true;
         megaJustTriggered = true;
-        instantBonusWin = Math.floor(state.bet * DK_MEGA_BONUS_INSTANT_WIN_MULT);
+        instantBonusWin = Math.floor(state.bet * DK_MEGA_BONUS_INSTANT_WIN_MULT * DK_BONUS_SCALE);
         state.winMultiplier = DK_MEGA_BONUS_REMAINING_MULT;
     }
 
-    const appliedSpinWin = Math.floor(spinWin * state.winMultiplier);
+    const appliedSpinWin = Math.floor(spinWin * DK_BONUS_SCALE * state.winMultiplier);
     state.totalWin += appliedSpinWin + instantBonusWin;
     state.spinsLeft -= 1;
 
@@ -787,7 +792,7 @@ function dkFormatBonusGrid(grid) {
 // ---- Команда и UI Darkness Casino ----
 const DK_BONUS_BUY_MULTIPLIER = 80;
 const DK_ANTE_SURCHARGE_PCT = 0.30;
-const DK_ANTE_SCATTER_MULT = 2;
+const DK_ANTE_SCATTER_MULT = 1.26; // шанс бонуса с Double Chance ≈ ×1.9
 const DK_BET_STEP_MULTIPLIERS = [2, 5, 10];
 const DK_MIN_BET = 100;
 
@@ -898,7 +903,15 @@ async function handleCasinoDarkness(message) {
         time: 10 * 60 * 1000,
     });
 
-    collector.on('collect', (interaction) => handleDarknessButton(interaction, menuMsg, session, collector));
+    collector.on('collect', async (interaction) => {
+        try {
+            await handleDarknessButton(interaction, menuMsg, session, collector);
+        } catch (e) {
+            console.error('Ошибка Darkness:', e);
+            session.bonusState = null;
+            await menuMsg.edit({ embeds: [dkBuildMenuEmbed(session, '⚠️ Произошла ошибка, меню восстановлено.')], components: dkBuildMenuComponents(session) }).catch(() => {});
+        }
+    });
     collector.on('end', () => darknessSessions.delete(menuMsg.id));
 }
 
@@ -1106,8 +1119,8 @@ const HF_CONFIG = {
         MARGARITA:{ emoji: '🍹', weight: 3 },
     },
     WILD_WEIGHT: 3,
-    SCATTER_WEIGHT: 2.2,          // вес скаттера на разрешённых барабанах (0,2,4)
-    SCATTER_WEIGHT_ANTE: 4.4,     // ×2 при Ante Bet
+    SCATTER_WEIGHT: 6.786,        // вес скаттера на разрешённых барабанах (0,2,4): бонус ~1 из 277 спинов
+    SCATTER_WEIGHT_ANTE: 9.12,    // при Ante Bet бонус ~1 из 127 спинов
     WILD_MULT_WEIGHTS: { 2: 60, 3: 30, 5: 10 }, // распределение множителя Wild
     SCATTER_REELS: [0, 2, 4],
     SCATTER_TRIGGER_INSTANT_WIN: 3,   // ×3 от ставки мгновенно при 3 скаттерах
@@ -1119,6 +1132,8 @@ const HF_CONFIG = {
     MAX_WIN_MULTIPLIER: 5000,     // потолок ×5000 от ставки
     MAX_STICKY_WILDS: 10,         // предохранитель от переполнения сетки залипшими Wild
     MIN_BET: 100,
+    BASE_SCALE: 1.8,              // масштаб выплат по линиям в обычной игре
+    BONUS_SCALE: 0.145,            // масштаб выплат во фриспинах: средний бонус ≈ ×94 ставки (покупка за ×100 ≈ 94%)
 };
 
 // Таблица выплат: множитель ставки за 3/4/5 совпадений подряд слева направо
@@ -1242,7 +1257,7 @@ function hfGenerateBonusGrid(stickyWilds) {
 }
 
 // Оценивает выигрыш по всем 25 линиям. grid[reel][row].
-function hfEvaluateLines(grid, bet) {
+function hfEvaluateLines(grid, bet, scale = 1) {
     let totalWin = 0;
     const winningLines = [];
 
@@ -1277,7 +1292,7 @@ function hfEvaluateLines(grid, bet) {
         if (tierMultiplier <= 0) continue;
 
         const lineMultiplier = wildsInLine.length > 0 ? wildsInLine.reduce((a, b) => a + b, 0) : 1;
-        const lineWin = Math.floor(bet * tierMultiplier * lineMultiplier);
+        const lineWin = Math.floor(bet * tierMultiplier * lineMultiplier * scale);
 
         if (lineWin > 0) {
             totalWin += lineWin;
@@ -1419,7 +1434,16 @@ async function handleCasinoHotFiesta(message) {
         time: 10 * 60 * 1000,
     });
 
-    collector.on('collect', (interaction) => handleHotFiestaButton(interaction, menuMsg, session));
+    collector.on('collect', async (interaction) => {
+        try {
+            await handleHotFiestaButton(interaction, menuMsg, session);
+        } catch (e) {
+            console.error('Ошибка Hot Fiesta:', e);
+            session.busy = false;
+            session.bonusState = null;
+            await menuMsg.edit({ embeds: [hfBuildMenuEmbed(session, '⚠️ Произошла ошибка, меню восстановлено.')], components: hfBuildMenuComponents(session) }).catch(() => {});
+        }
+    });
     collector.on('end', () => hfSessions.delete(menuMsg.id));
 }
 
@@ -1529,7 +1553,7 @@ async function hfRunSpinSequence(menuMsg, session) {
 
     // Реальный результат определён здесь, до финального показа — анимация выше на него не влияет
     const grid = hfGenerateBaseGrid(session.ante);
-    const { totalWin: rawWin, winningLines } = hfEvaluateLines(grid, session.bet);
+    const { totalWin: rawWin, winningLines } = hfEvaluateLines(grid, session.bet, HF_CONFIG.BASE_SCALE);
     const scatterCount = hfCountScatters(grid);
 
     let totalWin = rawWin;
@@ -1626,7 +1650,7 @@ async function hfRunBonusSequence(menuMsg, session) {
         await sleep(900);
 
         const { grid, newlyLandedWilds } = hfGenerateBonusGrid(state.stickyWilds);
-        const { totalWin: spinWin } = hfEvaluateLines(grid, session.bet);
+        const { totalWin: spinWin } = hfEvaluateLines(grid, session.bet, HF_CONFIG.BONUS_SCALE);
 
         state.totalWin += spinWin;
         state.spinsLeft--;
@@ -1725,6 +1749,99 @@ function formatHand(hand) {
 let connection;
 
 
+// ==== !casino (Sugar Rush 5x5, каскады). Раньше эта функция была не определена и роняла бота ====
+async function handleCasinoSugarRush(message) {
+    const userId = message.author.id;
+    const args = message.content.split(' ');
+    const bet = parseInt(args[1] === 'sugarrush' ? args[2] : args[1]);
+
+    if (!Number.isFinite(bet) || bet <= 0) {
+        message.reply('Напиши так: `!casino 100` (ставка фишками)');
+        return;
+    }
+
+    const COOLDOWN_MS = 30 * 1000;
+    const last = casinoCooldowns.get(userId) || 0;
+    if (Date.now() - last < COOLDOWN_MS) {
+        message.reply(`⏳ Подожди ещё ${Math.ceil((COOLDOWN_MS - (Date.now() - last)) / 1000)} сек.`);
+        return;
+    }
+
+    const balance = getBalance(userId);
+    if (bet > balance) {
+        message.reply(`Недостаточно фишек! У тебя: ${balance} 🪙`);
+        return;
+    }
+    const maxBet = Math.floor(500 + balance * 0.10);
+    if (bet > maxBet) {
+        message.reply(`Максимальная ставка для тебя сейчас: ${maxBet} 🪙`);
+        return;
+    }
+
+    casinoCooldowns.set(userId, Date.now());
+    setBalance(userId, balance - bet);
+
+    let grid;
+    if (Math.random() < 0.25) {
+        do { grid = generateSugarGrid(); } while (findSugarClusters(grid).length > 0);
+    } else {
+        grid = generateSugarGrid();
+    }
+    const startGrid = formatSugarGrid(grid);
+
+    let total = 0, step = 0, log = '';
+    while (step < CASCADE_MAX_STEPS) {
+        const clusters = findSugarClusters(grid);
+        if (clusters.length === 0) break;
+
+        const mult = MULTIPLIER_TRAIL[Math.min(step, MULTIPLIER_TRAIL.length - 1)];
+        const toRemove = Array.from({ length: CASINO_SIZE }, () => Array(CASINO_SIZE).fill(false));
+
+        for (const cluster of clusters) {
+            const [r0, c0] = cluster[0];
+            const sym = grid[r0][c0];
+            const win = Math.floor(bet * getPayoutMultiplier(sym, cluster.length) * mult);
+            total += win;
+            log += `Каскад ${step + 1}: ${sym} ×${cluster.length} — +${win} 🪙 (×${mult})\n`;
+            for (const [r, c] of cluster) toRemove[r][c] = true;
+        }
+        grid = collapseAndRefillSugar(grid, toRemove);
+        step++;
+    }
+
+    const cap = bet * 20;
+    if (total > cap) {
+        total = cap;
+        log += '⚠️ Потолок выигрыша ×20\n';
+    }
+
+    setBalance(userId, getBalance(userId) + total);
+
+    const st = getStats(userId);
+    if (total > bet) st.casinoWins++;
+    else if (total < bet) st.casinoLosses++;
+    st.casinoSpinsTotal = (st.casinoSpinsTotal || 0) + 1;
+    saveLists();
+    checkAchievements(userId, message);
+
+    const net = total - bet;
+    const gif = net > 0
+        ? WIN_GIFS[Math.floor(Math.random() * WIN_GIFS.length)]
+        : LOSE_GIFS[Math.floor(Math.random() * LOSE_GIFS.length)];
+
+    await message.reply({
+        embeds: [new EmbedBuilder()
+            .setColor(net > 0 ? 0x00ff00 : net === 0 ? 0x888888 : 0xff0000)
+            .setTitle('🎰 Sugar Rush')
+            .setDescription(
+                `${startGrid}\n\n${log ? log.slice(0, 2500) : 'Совпадений не было.\n'}\n` +
+                `Ставка: ${bet} 🪙 | Выигрыш: **${total}** 🪙\n` +
+                `Баланс: ${isUnlimited(userId) ? '∞' : getBalance(userId)} 🪙`
+            )
+            .setImage(gif)]
+    });
+}
+
 // ==== LAVALINK: переключатель и вспомогательные функции ====
 const USE_LAVALINK = true; // false = вернуться на старый плеер (play-dl)
 let lavalinkNodeReady = false;
@@ -1764,38 +1881,118 @@ async function ensureMusicPlayer() {
     return player;
 }
 
-// Ищет трек/плейлист и ставит в очередь. opts: { skipMatch, random }
+// ==== ИСТОЧНИКИ ПОИСКА ====
+// Короткие приставки для команды: !play vk <запрос>, !play ym <запрос>, !play yt <запрос> ...
+const SOURCE_ALIASES = {
+    vk:  { prefix: 'vksearch',  manager: 'vkmusic',     name: 'ВКонтакте' },
+    ym:  { prefix: 'ymsearch',  manager: 'yandexmusic', name: 'Яндекс Музыка' },
+    sp:  { prefix: 'spsearch',  manager: 'spotify',     name: 'Spotify' },
+    ytm: { prefix: 'ytmsearch', manager: 'youtube',     name: 'YouTube Music' },
+    yt:  { prefix: 'ytsearch',  manager: 'youtube',     name: 'YouTube' }
+};
+// Порядок поиска по названию (можно поменять в .env: SEARCH_ORDER=vk,ym,ytm,yt)
+const SEARCH_ORDER = (process.env.SEARCH_ORDER || 'vk,ym,ytm,yt')
+    .split(',').map(s => s.trim().toLowerCase()).filter(k => SOURCE_ALIASES[k]);
+
+function availableManagers(player) {
+    const info = player && player.node && player.node.info;
+    return (info && info.sourceManagers) || [];
+}
+
+function friendlySearchError(err) {
+    const msg = String((err && err.message) || err || '');
+    if (/soundcloud/i.test(msg)) return '☁️ SoundCloud сейчас не поддерживается.';
+    const m = msg.match(/has not '([a-z]+)' enabled/i);
+    if (m) return `❌ Этот источник (${m[1]}) не подключён на сервере.`;
+    return null;
+}
+
+function ruPlural(n, one, few, many) {
+    const a = Math.abs(n) % 100;
+    const b = a % 10;
+    if (a > 10 && a < 20) return many;
+    if (b > 1 && b < 5) return few;
+    if (b === 1) return one;
+    return many;
+}
+
+// Ищет трек/плейлист и ставит в очередь. opts: { random }
 async function lavaEnqueue(query, userId, opts = {}) {
     const player = await ensureMusicPlayer();
+    query = String(query || '').trim();
     const isUrl = /^https?:\/\//i.test(query);
 
-    if (!isUrl) {
-        const isGibberish = query.length > 6 && !query.includes(' ') && !/[aeiouyаеиоуыэюяё]/i.test(query);
-        if (isGibberish) return { error: '❌ Похоже на бред. Напиши нормальное название песни!' };
+    if (/(^|[/.])(soundcloud\.com|snd\.sc)(\/|$)/i.test(query)) {
+        return { error: '☁️ SoundCloud сейчас не поддерживается — он закрыл доступ для плееров. Попробуй VK, Яндекс.Музыку, YouTube или Spotify.' };
     }
 
-    const res = await player.search(isUrl ? { query } : { query, source: 'scsearch' }, { id: userId });
-    if (!res || res.loadType === 'error' || res.loadType === 'empty' || !res.tracks || !res.tracks.length) {
-        return { error: 'Ничего не нашёл 😕' };
+    const managers = availableManagers(player);
+    let res = null;
+    let lastError = null;
+
+    if (isUrl) {
+        try {
+            res = await player.search({ query }, { id: userId });
+        } catch (e) {
+            lastError = e;
+        }
+        if (res && res.loadType === 'error') {
+            lastError = new Error((res.exception && res.exception.message) || 'load error');
+            res = null;
+        }
+    } else {
+        let text = query;
+        let sources;
+        const words = query.split(/\s+/);
+        const alias = words.length > 1 ? SOURCE_ALIASES[words[0].toLowerCase()] : null;
+
+        if (alias) {
+            // Принудительный источник: !play vk название
+            if (!managers.includes(alias.manager)) {
+                return { error: `❌ Источник «${alias.name}» не подключён на сервере.` };
+            }
+            sources = [alias.prefix];
+            text = query.slice(words[0].length).trim();
+        } else {
+            sources = SEARCH_ORDER.map(k => SOURCE_ALIASES[k]).filter(a => managers.includes(a.manager)).map(a => a.prefix);
+            if (sources.length === 0) sources = ['ytmsearch', 'ytsearch'];
+        }
+
+        const isGibberish = text.length > 6 && !text.includes(' ') && !/[aeiouyаеиоуыэюяё]/i.test(text);
+        if (isGibberish) return { error: '❌ Похоже на бред. Напиши нормальное название песни!' };
+
+        for (const source of sources) {
+            try {
+                const r = await player.search({ query: text, source }, { id: userId });
+                if (r && r.loadType === 'error') {
+                    lastError = new Error((r.exception && r.exception.message) || 'load error');
+                    continue;
+                }
+                if (r && r.tracks && r.tracks.length) { res = r; break; }
+            } catch (e) {
+                lastError = e;
+            }
+        }
+    }
+
+    if (!res || !res.tracks || !res.tracks.length) {
+        if (lastError) console.warn('⚠️ Ошибка поиска:', lastError.message || lastError);
+        return {
+            error: (lastError && friendlySearchError(lastError))
+                || (lastError ? '⚠️ Не получилось загрузить трек — источник вернул ошибку. Попробуй другой запрос или ссылку.' : 'Ничего не нашёл 😕')
+        };
     }
 
     let title;
     if (res.loadType === 'playlist') {
-        player.queue.add(res.tracks);
+        const tracks = res.tracks.slice(0, 100);
+        player.queue.add(tracks);
         const plName = (res.playlist && (res.playlist.name || res.playlist.title)) || 'без названия';
-        title = `плейлист «${plName}» (${res.tracks.length} треков)`;
+        title = `плейлист «${plName}» (${tracks.length} ${ruPlural(tracks.length, 'трек', 'трека', 'треков')})`;
     } else {
         const track = opts.random
             ? res.tracks[Math.floor(Math.random() * res.tracks.length)]
             : res.tracks[0];
-
-        if (!isUrl && !opts.skipMatch && !opts.random) {
-            const found = (track.info.title || '').toLowerCase();
-            const words = query.toLowerCase().split(/\s+/);
-            if (!words.some(w => found.includes(w))) {
-                return { error: '❌ SoundCloud выдал случайный трек. Напиши точнее!' };
-            }
-        }
         player.queue.add(track);
         title = track.info.title;
     }
@@ -1804,8 +2001,294 @@ async function lavaEnqueue(query, userId, opts = {}) {
     return { title, player };
 }
 
+// ==== ПАНЕЛЬ ПЛЕЕРА (embed + кнопки) ====
+const SOURCE_TITLES = {
+    youtube: 'YouTube', vkmusic: 'ВКонтакте', yandexmusic: 'Яндекс Музыка', spotify: 'Spotify',
+    applemusic: 'Apple Music', deezer: 'Deezer', http: 'Ссылка', soundcloud: 'SoundCloud'
+};
+
+function fmtDur(ms) {
+    const total = Math.max(0, Math.floor((ms || 0) / 1000));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    const mm = String(m).padStart(2, '0');
+    const ss = String(s).padStart(2, '0');
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+const mdEsc = (s) => String(s || '').replace(/[\\[\]*_`~|>]/g, '\\$&');
+
+function buildMusicPanel(player, trackOverride) {
+    const track = trackOverride || (player ? player.queue.current : null);
+    const volume = Math.round(player ? player.volume : currentVolume);
+    const loopMode = player ? player.repeatMode : 'off';
+    const paused = !!(player && player.paused);
+    const queued = player ? player.queue.tracks.length : 0;
+    const canPrev = !!(player && player.queue.previous && player.queue.previous.length > 0);
+    const seekable = !!(track && track.info.isSeekable && !track.info.isStream);
+
+    const embed = new EmbedBuilder().setColor(paused ? 0xfaa61a : 0x5865F2);
+
+    if (!track) {
+        embed.setAuthor({ name: 'Плеер' })
+            .setDescription('Сейчас ничего не играет.\nДобавь трек кнопкой ➕ или командой `!play`.');
+    } else {
+        const info = track.info;
+        const hasLink = info.uri && /^https?:\/\//i.test(info.uri);
+        const artist = hasLink ? `[${mdEsc(info.author)}](${info.uri.replace(/\)/g, '%29')})` : mdEsc(info.author);
+        const duration = info.isStream ? '🔴 Прямой эфир' : fmtDur(info.duration);
+        const source = SOURCE_TITLES[info.sourceName] || info.sourceName || 'Источник';
+        const reqId = lavaRequesterId(track);
+        const who = reqId ? `<@${reqId}>` : 'панель управления';
+
+        embed.setAuthor({ name: paused ? 'Пауза' : 'Сейчас играет' })
+            .setDescription(
+                `${artist}\n**${mdEsc(info.title)}**\n\n` +
+                `**Длительность:** ${duration}\n\n` +
+                `🎵 ${source} • ${queued} ${ruPlural(queued, 'трек', 'трека', 'треков')} в очереди • Добавлен: ${who}`
+            );
+        if (info.artworkUrl && /^https?:\/\//i.test(info.artworkUrl)) embed.setThumbnail(info.artworkUrl);
+    }
+    if (loopMode === 'track') embed.setFooter({ text: '🔂 Повтор трека' });
+    else if (loopMode === 'queue') embed.setFooter({ text: '🔁 Повтор очереди' });
+
+    const B = (id, style = ButtonStyle.Secondary) => new ButtonBuilder().setCustomId('mp:' + id).setStyle(style);
+
+    const row1 = new ActionRowBuilder().addComponents(
+        B('shuffle').setEmoji('🔀').setDisabled(queued < 2),
+        B('vdown').setEmoji('🔉').setDisabled(!player || volume <= 0),
+        B('vol').setLabel(`${volume}%`).setDisabled(true),
+        B('vup').setEmoji('🔊').setDisabled(!player || volume >= 200),
+        B('loop', loopMode === 'off' ? ButtonStyle.Secondary : ButtonStyle.Success).setEmoji(loopMode === 'track' ? '🔂' : '🔁')
+    );
+    const row2 = new ActionRowBuilder().addComponents(
+        B('back').setEmoji('⏪').setDisabled(!seekable),
+        B('prev').setEmoji('⏮️').setDisabled(!canPrev),
+        B('pause', paused ? ButtonStyle.Success : ButtonStyle.Secondary).setEmoji(paused ? '▶️' : '⏸️').setDisabled(!track),
+        B('next').setEmoji('⏭️').setDisabled(!track),
+        B('fwd').setEmoji('⏩').setDisabled(!seekable)
+    );
+    const row3 = new ActionRowBuilder().addComponents(
+        B('add', ButtonStyle.Success).setEmoji('➕'),
+        B('queue').setEmoji('📜'),
+        B('like').setEmoji('❤️').setDisabled(!track),
+        B('stop').setEmoji('⏹️').setDisabled(!track && queued === 0)
+    );
+    const row4 = new ActionRowBuilder().addComponents(
+        B('clear', ButtonStyle.Danger).setEmoji('🗑️').setLabel('Очистить очередь').setDisabled(queued === 0)
+    );
+
+    return { embeds: [embed], components: [row1, row2, row3, row4] };
+}
+
+let musicPanelLock = Promise.resolve();
+
+function musicPanelChannelId() {
+    return global.musicChannelId || process.env.MUSIC_TEXT_CHANNEL_ID || currentVoiceChannelId;
+}
+
+async function deleteMusicPanel() {
+    const mp = global.musicPanel;
+    global.musicPanel = null;
+    if (!mp) return;
+    try {
+        const ch = await client.channels.fetch(mp.channelId);
+        const m = await ch.messages.fetch(mp.messageId);
+        await m.delete();
+    } catch (e) { /* сообщения уже нет — не страшно */ }
+}
+
+// Новая панель внизу чата; старая удаляется
+function sendMusicPanel(player, track) {
+    musicPanelLock = musicPanelLock.then(async () => {
+        try {
+            await deleteMusicPanel();
+            const ch = await client.channels.fetch(musicPanelChannelId()).catch(() => null);
+            if (!ch || !ch.send) return;
+            const msg = await ch.send(buildMusicPanel(player, track));
+            global.musicPanel = { channelId: ch.id, messageId: msg.id };
+        } catch (e) {
+            console.error('Не удалось отправить панель плеера:', e);
+        }
+    });
+    return musicPanelLock;
+}
+
+// Обновляет существующую панель (громкость, пауза, повтор...)
+async function refreshMusicPanel(player) {
+    const mp = global.musicPanel;
+    if (!mp) return;
+    try {
+        const ch = await client.channels.fetch(mp.channelId);
+        const m = await ch.messages.fetch(mp.messageId);
+        await m.edit(buildMusicPanel(player));
+    } catch (e) {
+        global.musicPanel = null;
+    }
+}
+
+async function handleMusicButton(interaction) {
+    const action = interaction.customId.split(':')[1];
+    const userId = interaction.user.id;
+    const p = client.lavalink ? client.lavalink.getPlayer(GUILD_ID) : null;
+    const say = (text) => interaction.reply({ content: text, ephemeral: true });
+
+    if (blacklist.includes(userId)) return say('⛔ Тебе нельзя управлять плеером.');
+    if (!p) return say('Плеер сейчас не активен.');
+
+    // Управлять можно только из голосового канала бота
+    const userVoice = interaction.member && interaction.member.voice ? interaction.member.voice.channelId : null;
+    if (userVoice !== p.voiceChannelId && !isUnlimited(userId)) {
+        return say('🎙️ Зайди в голосовой канал, где сидит бот, чтобы управлять музыкой.');
+    }
+
+    global.musicChannelId = interaction.channelId;
+    const cur = p.queue.current;
+
+    if (action === 'add') {
+        const modal = new ModalBuilder()
+            .setCustomId('mp:addmodal')
+            .setTitle('Добавить трек')
+            .addComponents(new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('q')
+                    .setLabel('Название песни или ссылка')
+                    .setPlaceholder('Можно с приставкой: vk / ym / yt / sp + название')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true)
+                    .setMaxLength(200)
+            ));
+        return interaction.showModal(modal);
+    }
+
+    if (action === 'queue') {
+        const tracks = p.queue.tracks;
+        if (!cur && tracks.length === 0) return say('Очередь пуста 😴');
+        let text = '';
+        if (cur) text += `▶️ **${cur.info.title}** — ${cur.info.author}\n\n`;
+        if (tracks.length) {
+            text += '**Далее:**\n';
+            tracks.slice(0, 15).forEach((t, i) => { text += `${i + 1}. ${t.info.title} — ${t.info.author}\n`; });
+            if (tracks.length > 15) text += `...и ещё ${tracks.length - 15}`;
+        }
+        return say(text.slice(0, 1900));
+    }
+
+    if (action === 'like') {
+        if (!cur || !cur.info.uri) return say('Нечего лайкать 🤷');
+        if (!likes[userId]) likes[userId] = [];
+        if (likes[userId].some(t => t.url === cur.info.uri)) return say('Этот трек уже у тебя в лайках ❤️');
+        likes[userId].push({ title: cur.info.title, url: cur.info.uri });
+        saveLists();
+        return say(`❤️ Добавлено в лайки: **${cur.info.title}**`);
+    }
+
+    if (action === 'pause') {
+        if (!cur) return say('Сейчас ничего не играет 🤷');
+        if (p.paused) await p.resume(); else await p.pause();
+        return interaction.update(buildMusicPanel(p));
+    }
+
+    if (action === 'vup' || action === 'vdown') {
+        const v = Math.max(0, Math.min(200, Math.round(p.volume) + (action === 'vup' ? 10 : -10)));
+        currentVolume = v;
+        await p.setVolume(v);
+        return interaction.update(buildMusicPanel(p));
+    }
+
+    if (action === 'loop') {
+        const next = { off: 'track', track: 'queue', queue: 'off' }[p.repeatMode] || 'off';
+        await p.setRepeatMode(next);
+        return interaction.update(buildMusicPanel(p));
+    }
+
+    if (action === 'shuffle') {
+        await p.queue.shuffle();
+        return interaction.update(buildMusicPanel(p));
+    }
+
+    if (action === 'back' || action === 'fwd') {
+        if (!cur || !cur.info.isSeekable || cur.info.isStream) return say('Этот трек нельзя перематывать.');
+        const delta = action === 'fwd' ? 10000 : -10000;
+        const target = Math.max(0, Math.min(p.position + delta, cur.info.duration - 1000));
+        await p.seek(target);
+        return interaction.deferUpdate();
+    }
+
+    if (action === 'prev') {
+        const prev = await p.queue.shiftPrevious();
+        if (!prev) return say('Предыдущих треков нет 🤷');
+        if (cur) await p.queue.add(cur, 0); // текущий вернётся в начало очереди
+        await interaction.deferUpdate();
+        await p.play({ clientTrack: prev });
+        return;
+    }
+
+    if (action === 'next') {
+        if (!cur) return say('Сейчас ничего не играет 🤷');
+        const requesterId = lavaRequesterId(cur);
+        if (requesterId && whitelist.includes(String(requesterId)) && String(requesterId) !== userId) {
+            return say('❌ Этот трек защищён — скипнуть его может только тот, кто включил.');
+        }
+        await interaction.deferUpdate();
+        await p.skip(0, false);
+        return;
+    }
+
+    if (action === 'stop') {
+        await interaction.deferUpdate();
+        await p.stopPlaying(true, false);
+        await p.setRepeatMode('off');
+        setIdlePresence();
+        await deleteMusicPanel();
+        return;
+    }
+
+    if (action === 'clear') {
+        await p.queue.splice(0, p.queue.tracks.length);
+        return interaction.update(buildMusicPanel(p));
+    }
+
+    return say('Неизвестная кнопка 🤔');
+}
+
+async function handleMusicModal(interaction) {
+    const userId = interaction.user.id;
+    if (blacklist.includes(userId)) {
+        await interaction.reply({ content: '⛔ Тебе нельзя управлять плеером.', ephemeral: true });
+        return;
+    }
+    const query = interaction.fields.getTextInputValue('q').trim();
+    await interaction.deferReply({ ephemeral: true });
+    if (interaction.channelId) global.musicChannelId = interaction.channelId;
+    const r = await lavaEnqueue(query, userId);
+    await interaction.editReply(r.error ? r.error : `🎵 Добавлено: ${r.title}`);
+}
+
+client.on('interactionCreate', async (interaction) => {
+    try {
+        if (interaction.isButton() && interaction.customId.startsWith('mp:')) {
+            await handleMusicButton(interaction);
+            return;
+        }
+        if (interaction.isModalSubmit() && interaction.customId === 'mp:addmodal') {
+            await handleMusicModal(interaction);
+            return;
+        }
+    } catch (error) {
+        console.error('Ошибка панели плеера:', error);
+        try {
+            const payload = { content: 'Не получилось выполнить это 😕', ephemeral: true };
+            if (interaction.deferred || interaction.replied) await interaction.followUp(payload);
+            else await interaction.reply(payload);
+        } catch (e) { /* уже поздно отвечать */ }
+    }
+});
+
 async function handleLavalinkCommand(message, cmd) {
     const userId = message.author.id;
+    global.musicChannelId = message.channel.id;
     const args = message.content.split(' ').slice(1).join(' ').trim();
     const getP = () => (client.lavalink ? client.lavalink.getPlayer(GUILD_ID) : null);
 
@@ -1813,7 +2296,7 @@ async function handleLavalinkCommand(message, cmd) {
         // ---- !play ----
         if (cmd === '!play') {
             if (!args) {
-                await message.reply('Напиши так: `!play название песни`, `!play ссылка на SoundCloud` или `!play ссылка на YouTube`');
+                await message.reply('Напиши так: `!play название`, `!play ссылка` (VK, Яндекс, YouTube, Spotify) или `!play vk|ym|yt|sp название` — поиск в конкретном источнике');
                 return;
             }
             const r = await lavaEnqueue(args, userId);
@@ -1852,6 +2335,13 @@ async function handleLavalinkCommand(message, cmd) {
 
         const p = getP();
 
+        // ---- !panel (показать панель плеера заново) ----
+        if (cmd === '!panel') {
+            const pl = getP() || await ensureMusicPlayer();
+            await sendMusicPanel(pl);
+            return;
+        }
+
         // ---- !queue ----
         if (cmd === '!queue') {
             const cur = p && p.queue.current;
@@ -1877,6 +2367,7 @@ async function handleLavalinkCommand(message, cmd) {
         if (cmd === '!pause') {
             if (!p || !p.playing) { await message.reply('Сейчас ничего не играет 🤷'); return; }
             await p.pause();
+            refreshMusicPanel(p);
             await message.reply('⏸ Пауза');
             return;
         }
@@ -1885,6 +2376,7 @@ async function handleLavalinkCommand(message, cmd) {
         if (cmd === '!resume') {
             if (!p || !p.paused) { await message.reply('Сейчас нет паузы 🤷'); return; }
             await p.resume();
+            refreshMusicPanel(p);
             await message.reply('▶️ Продолжаю');
             return;
         }
@@ -1901,7 +2393,7 @@ async function handleLavalinkCommand(message, cmd) {
                 return;
             }
             currentVolume = value;
-            if (p) await p.setVolume(value);
+            if (p) { await p.setVolume(value); refreshMusicPanel(p); }
             await message.reply(`🔊 Громкость: ${currentVolume}%`);
             return;
         }
@@ -1911,6 +2403,7 @@ async function handleLavalinkCommand(message, cmd) {
             if (!p) { await message.reply('Сейчас ничего не играет 🤷'); return; }
             const enable = p.repeatMode !== 'track';
             await p.setRepeatMode(enable ? 'track' : 'off');
+            refreshMusicPanel(p);
             await message.reply(enable ? '🔁 Повтор трека включён' : '➡️ Повтор трека выключен');
             return;
         }
@@ -1958,6 +2451,7 @@ async function handleLavalinkCommand(message, cmd) {
                 await p.setRepeatMode('off');
             }
             setIdlePresence();
+            await deleteMusicPanel();
             await message.reply('⏹ Останавливаю музыку');
             return;
         }
@@ -2289,7 +2783,7 @@ setInterval(async () => {
     }
 }, 60 * 60 * 1000); // раз в час
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
     console.log(`🤖 Бот запущен: ${client.user.tag}`);
 
             try {
@@ -2316,13 +2810,14 @@ client.once('ready', async () => {
         client.lavalink.nodeManager.on('error', (node, error) => console.error(`🔴 Ошибка Lavalink-ноды "${node.id}":`, error));
 
         client.lavalink.on('trackStart', (player, track) => {
+            sendMusicPanel(player, track);
             if (global.voteskipVotes) global.voteskipVotes.clear();
             client.user.setPresence({
                 status: 'online',
                 activities: [{ name: `🎵 ${(track && track.info && track.info.title) || 'Музыка'}` }]
             });
         });
-        client.lavalink.on('queueEnd', () => setIdlePresence());
+        client.lavalink.on('queueEnd', () => { setIdlePresence(); deleteMusicPanel(); });
         client.lavalink.on('trackError', (player, track, payload) => {
             console.error('❌ Ошибка трека:', track && track.info && track.info.title, payload && payload.exception ? payload.exception.message : payload);
         });
@@ -2379,6 +2874,10 @@ client.on('guildMemberAdd', async (member) => {
 
 
 client.login(TOKEN);
+
+// Любая необработанная ошибка только логируется, а не роняет бота
+process.on('unhandledRejection', (e) => console.error('⚠️ unhandledRejection:', e));
+process.on('uncaughtException', (e) => console.error('⚠️ uncaughtException:', e));
 
 // ==== Ответ на упоминание бота ====
 const MENTION_REPLIES = [
@@ -2488,7 +2987,7 @@ client.on('messageCreate', async (message) => {
         // ---- LAVALINK: музыкальные команды перехватываются здесь (старый код ниже остаётся запасным) ----
     if (USE_LAVALINK) {
         const lavaCmd = message.content.split(' ')[0];
-        if (['!play', '!sosi', '!67', '!anime', '!test', '!queue', '!pause', '!resume', '!volume', '!loop', '!nowplaying', '!skip', '!voteskip', '!stop', '!like', '!radio'].includes(lavaCmd)) {
+        if (['!play', '!sosi', '!67', '!anime', '!test', '!queue', '!pause', '!resume', '!volume', '!loop', '!nowplaying', '!skip', '!voteskip', '!stop', '!like', '!radio', '!panel'].includes(lavaCmd)) {
             await handleLavalinkCommand(message, lavaCmd);
             return;
         }
@@ -2800,7 +3299,9 @@ client.on('messageCreate', async (message) => {
             main: '📚 **Центр Помощи Mogster Bot**\n\nДобро пожаловать! Чтобы не забивать чат огромными полотнами текста, я распределил все команды по кнопкам ниже. Нажми на нужный раздел, чтобы отобразить его команды!',
             
             music: '**🎵 Музыкальный плеер**\n\n' +
-                   '`!play <название/ссылка>` — включить трек (SoundCloud или YouTube)\n' +
+                   '`!play <название/ссылка>` — включить трек (VK, Яндекс, YouTube, Spotify)\n' +
+                   '`!play vk|ym|yt|sp <название>` — искать в конкретном источнике\n' +
+                   '`!panel` — показать панель плеера с кнопками заново\n' +
                    '`!skip` — пропустить текущий трек\n' +
                    '`!voteskip` — запустить голосование за пропуск\n' +
                    '`!pause` / `!resume` — поставить на паузу / продолжить\n' +
@@ -4344,6 +4845,7 @@ client.on('messageCreate', async (message) => {
         sexSession.count = 0;
         sexSession.blockedUntil = 0;
 
+        message.reply(`🤰 Получилось! <@${pregnantId}> теперь в положении. Следить за сроком: \`!pregnancy\``);
         return;
     }
 
@@ -4957,7 +5459,7 @@ client.on('messageCreate', async (message) => {
         }
 
         if (!amount || amount <= global.activeSkinAuction.highestBid) {
-            return message.reply(`❌ Ставка должна быть БОЛЬШЕ текущей максимы (${global.activeAuction ? global.activeAuction.highestBid : global.activeSkinAuction.highestBid} 🪙)`);
+            return message.reply(`❌ Ставка должна быть БОЛЬШЕ текущей максимы (${global.activeSkinAuction.highestBid} 🪙)`);
         }
 
         if (amount > getBalance(message.author.id)) {
@@ -5451,6 +5953,9 @@ startTurnTimer(); // запускаем таймер на самый первы�
                 cascadeIndex++;
             }
 
+            if (totalWinnings - spinWinningsBefore > bet * 20) {
+                totalWinnings = spinWinningsBefore + bet * 20; // потолок выигрыша за один спин
+            }
             const spinWinnings = totalWinnings - spinWinningsBefore;
             if (spinWinnings > 0) {
                 log += `${i}-й спин: +${spinWinnings} 🪙\n`;
