@@ -6,7 +6,6 @@ set -euo pipefail
 
 ENV_FILE="${ENV_FILE:-/root/bot/.env}"
 OUT="${OUT:-/opt/lavalink/application.yml}"
-YT_PLUGIN_VERSION="1.18.2"
 LAVASRC_VERSION="4.8.3"
 
 [ -f "$ENV_FILE" ] || { echo "❌ Не найден $ENV_FILE"; exit 1; }
@@ -30,12 +29,15 @@ YM="$(get YANDEX_MUSIC_TOKEN)"
 VK="$(get VK_MUSIC_TOKEN)"
 SPID="$(get SPOTIFY_CLIENT_ID)"
 SPSEC="$(get SPOTIFY_CLIENT_SECRET)"
+YT_PLUGIN_VERSION="$(get YOUTUBE_PLUGIN_VERSION)"   # версия плагина YouTube; по умолчанию 1.18.2
+[ -n "$YT_PLUGIN_VERSION" ] || YT_PLUGIN_VERSION="1.18.2"
+YT_SNAP=false; case "$(get YOUTUBE_PLUGIN_SNAPSHOT)" in true|TRUE|1|yes) YT_SNAP=true;; esac   # true — брать сборку из snapshot-репозитория (версия = хэш коммита)
 YT_OAUTH="$(get YOUTUBE_OAUTH)"            # true — войти в YouTube через Google-аккаунт (для клиента TV)
 YT_REFRESH="$(get YOUTUBE_REFRESH_TOKEN)"  # после первого входа сюда кладётся refresh token
 PX_URL="$(get RU_PROXY_URL)"               # необязательно: HTTP-прокси в России для Яндекса и VK
 PX_USER="$(get RU_PROXY_USER)"
 PX_PASS="$(get RU_PROXY_PASS)"
-for v in PASS:"$PASS" YM:"$YM" VK:"$VK" SPID:"$SPID" SPSEC:"$SPSEC" YT_REFRESH:"$YT_REFRESH" PX_URL:"$PX_URL" PX_USER:"$PX_USER" PX_PASS:"$PX_PASS"; do check "${v%%:*}" "${v#*:}"; done
+for v in PASS:"$PASS" YM:"$YM" VK:"$VK" SPID:"$SPID" SPSEC:"$SPSEC" YT_REFRESH:"$YT_REFRESH" YT_PLUGIN_VERSION:"$YT_PLUGIN_VERSION" PX_URL:"$PX_URL" PX_USER:"$PX_USER" PX_PASS:"$PX_PASS"; do check "${v%%:*}" "${v#*:}"; done
 
 SP_ON=false; [ -n "$SPID" ] && [ -n "$SPSEC" ] && SP_ON=true
 YM_ON=false; [ -n "$YM" ] && YM_ON=true
@@ -62,6 +64,7 @@ server:
 lavalink:
   plugins:
     - dependency: "dev.lavalink.youtube:youtube-plugin:${YT_PLUGIN_VERSION}"
+      snapshot: ${YT_SNAP}
     - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:${LAVASRC_VERSION}"
       repository: "https://maven.lavalink.dev/releases"
   server:
@@ -152,5 +155,6 @@ chmod 600 "$OUT"
 id lavalink >/dev/null 2>&1 && chown lavalink:lavalink "$OUT" || true
 
 echo "✅ Конфиг записан: $OUT"
+echo "   Плагин YouTube: ${YT_PLUGIN_VERSION} (snapshot: ${YT_SNAP})"
 echo "   YouTube: вкл (OAuth: $OAUTH_ON, refresh-токен: $([ -n "$YT_REFRESH" ] && echo есть || echo нет)) | Spotify: $SP_ON | Яндекс Музыка: $YM_ON | ВКонтакте: $VK_ON | прокси: $PROXY_ON | SoundCloud: выкл"
 echo "   Дальше: systemctl restart lavalink"
