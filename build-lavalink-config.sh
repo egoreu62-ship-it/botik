@@ -32,12 +32,14 @@ SPSEC="$(get SPOTIFY_CLIENT_SECRET)"
 YT_PLUGIN_VERSION="$(get YOUTUBE_PLUGIN_VERSION)"   # версия плагина YouTube; по умолчанию 1.18.2
 [ -n "$YT_PLUGIN_VERSION" ] || YT_PLUGIN_VERSION="1.18.2"
 YT_SNAP=false; case "$(get YOUTUBE_PLUGIN_SNAPSHOT)" in true|TRUE|1|yes) YT_SNAP=true;; esac   # true — брать сборку из snapshot-репозитория (версия = хэш коммита)
+CIPHER_URL="$(get YOUTUBE_CIPHER_URL)"        # удалённый сервер расшифровки подписей (yt-cipher), нужен для YouTube
+CIPHER_PASS="$(get YOUTUBE_CIPHER_PASSWORD)"  # пароль сервера, если он есть (у публичного его нет)
 YT_OAUTH="$(get YOUTUBE_OAUTH)"            # true — войти в YouTube через Google-аккаунт (для клиента TV)
 YT_REFRESH="$(get YOUTUBE_REFRESH_TOKEN)"  # после первого входа сюда кладётся refresh token
 PX_URL="$(get RU_PROXY_URL)"               # необязательно: HTTP-прокси в России для Яндекса и VK
 PX_USER="$(get RU_PROXY_USER)"
 PX_PASS="$(get RU_PROXY_PASS)"
-for v in PASS:"$PASS" YM:"$YM" VK:"$VK" SPID:"$SPID" SPSEC:"$SPSEC" YT_REFRESH:"$YT_REFRESH" YT_PLUGIN_VERSION:"$YT_PLUGIN_VERSION" PX_URL:"$PX_URL" PX_USER:"$PX_USER" PX_PASS:"$PX_PASS"; do check "${v%%:*}" "${v#*:}"; done
+for v in PASS:"$PASS" YM:"$YM" VK:"$VK" SPID:"$SPID" SPSEC:"$SPSEC" YT_REFRESH:"$YT_REFRESH" CIPHER_URL:"$CIPHER_URL" CIPHER_PASS:"$CIPHER_PASS" YT_PLUGIN_VERSION:"$YT_PLUGIN_VERSION" PX_URL:"$PX_URL" PX_USER:"$PX_USER" PX_PASS:"$PX_PASS"; do check "${v%%:*}" "${v#*:}"; done
 
 SP_ON=false; [ -n "$SPID" ] && [ -n "$SPSEC" ] && SP_ON=true
 YM_ON=false; [ -n "$YM" ] && YM_ON=true
@@ -93,6 +95,14 @@ if [ "$OAUTH_ON" = true ]; then cat <<YML
       enabled: true
 YML
   [ -n "$YT_REFRESH" ] && echo "      refreshToken: \"${YT_REFRESH}\""
+  :
+fi
+if [ -n "$CIPHER_URL" ]; then
+  echo "    remoteCipher:"
+  echo "      url: \"${CIPHER_URL}\""
+  [ -n "$CIPHER_PASS" ] && echo "      password: \"${CIPHER_PASS}\""
+  echo "      userAgent: \"mogster-bot\""
+  :
 fi
 cat <<YML
   lavasrc:
@@ -156,5 +166,5 @@ id lavalink >/dev/null 2>&1 && chown lavalink:lavalink "$OUT" || true
 
 echo "✅ Конфиг записан: $OUT"
 echo "   Плагин YouTube: ${YT_PLUGIN_VERSION} (snapshot: ${YT_SNAP})"
-echo "   YouTube: вкл (OAuth: $OAUTH_ON, refresh-токен: $([ -n "$YT_REFRESH" ] && echo есть || echo нет)) | Spotify: $SP_ON | Яндекс Музыка: $YM_ON | ВКонтакте: $VK_ON | прокси: $PROXY_ON | SoundCloud: выкл"
+echo "   YouTube: вкл (OAuth: $OAUTH_ON, refresh-токен: $([ -n "$YT_REFRESH" ] && echo есть || echo нет), cipher-сервер: $([ -n "$CIPHER_URL" ] && echo есть || echo нет)) | Spotify: $SP_ON | Яндекс Музыка: $YM_ON | ВКонтакте: $VK_ON | прокси: $PROXY_ON | SoundCloud: выкл"
 echo "   Дальше: systemctl restart lavalink"
