@@ -1891,7 +1891,7 @@ const SOURCE_ALIASES = {
     yt:  { prefix: 'ytsearch',  manager: 'youtube',     name: 'YouTube' }
 };
 // Порядок поиска по названию (можно поменять в .env: SEARCH_ORDER=vk,ym,ytm,yt)
-const SEARCH_ORDER = (process.env.SEARCH_ORDER || 'vk,ym,ytm,yt')
+const SEARCH_ORDER = (process.env.SEARCH_ORDER || 'yt,ytm,vk,ym')
     .split(',').map(s => s.trim().toLowerCase()).filter(k => SOURCE_ALIASES[k]);
 
 function availableManagers(player) {
@@ -1925,6 +1925,8 @@ async function lavaEnqueue(query, userId, opts = {}) {
     if (/(^|[/.])(soundcloud\.com|snd\.sc)(\/|$)/i.test(query)) {
         return { error: '☁️ SoundCloud сейчас не поддерживается — он закрыл доступ для плееров. Попробуй VK, Яндекс.Музыку, YouTube или Spotify.' };
     }
+
+    if (SPOTIFY_URL_RE.test(query)) return await enqueueSpotify(query, userId, player);
 
     const managers = availableManagers(player);
     let res = null;
@@ -1999,6 +2001,257 @@ async function lavaEnqueue(query, userId, opts = {}) {
 
     if (!player.playing && !player.paused) await player.play();
     return { title, player };
+}
+
+// ==== SPOTIFY → YOUTUBE: КОНВЕРТЕР ПЛЕЙЛИСТОВ ====
+// Читает список треков со встроенной страницы плеера Spotify (без API и без Premium),
+// запоминает порядок и по каждому треку ищет лучшее совпадение на YouTube.
+const SPOTIFY_URL_RE = /^https?:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?(playlist|album|track)\/([A-Za-z0-9]+)/i;
+const SPOTIFY_CACHE_FILE = './spotify-cache.json';
+const SPOTIFY_PLAYLIST_TTL_MS = 6 * 60 * 60 * 1000;
+const SPOTIFY_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.9'
+};
+
+let spotifyCache = { playlists: {}, resolved: {} };
+try {
+    spotifyCache = { playlists: {}, resolved: {}, ...JSON.parse(fs.readFileSync(SPOTIFY_CACHE_FILE, 'utf8')) };
+} catch (e) { /* кэша ещё нет — это нормально */ }
+
+let spotifyCacheTimer = null;
+function saveSpotifyCache() {
+    if (spotifyCacheTimer) return;
+    spotifyCacheTimer = setTimeout(() => {
+        spotifyCacheTimer = null;
+        const keys = Object.keys(spotifyCache.resolved);
+        if (keys.length > 5000) for (const k of keys.slice(0, keys.length - 5000)) delete spotifyCache.resolved[k];
+        fs.writeFile(SPOTIFY_CACHE_FILE, JSON.stringify(spotifyCache), (err) => {
+            if (err) console.error('Не удалось сохранить spotify-cache.json:', err.message);
+        });
+    }, 2000);
+}
+
+function findNode(obj, pred, depth = 0) {
+    if (!obj || typeof obj !== 'object' || depth > 14) return null;
+    if (!Array.isArray(obj) && pred(obj)) return obj;
+    const values = Array.isArray(obj) ? obj : Object.values(obj);
+    for (const v of values) {
+        const r = findNode(v, pred, depth + 1);
+        if (r) return r;
+    }
+    return null;
+}
+
+const normText = (s) => String(s || '').toLowerCase().normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '').replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+const hasWord = (hay, w) => (' ' + hay + ' ').includes(' ' + w + ' ');
+const normDuration = (d) => { const n = Number(d) || 0; return n > 0 && n < 1000 ? n * 1000 : n; }; // на случай секунд вместо миллисекунд
+
+async function fetchSpotifyTotal(type, id) {
+    try {
+        const r = await fetch(`https://open.spotify.com/${type}/${id}`, { headers: SPOTIFY_HEADERS, signal: AbortSignal.timeout(10000) });
+        const html = await r.text();
+        const tag = html.match(/<meta[^>]*music:song_count[^>]*>/i);
+        const n = tag && tag[0].match(/content="(\d+)"/);
+        return n ? parseInt(n[1], 10) : null;
+    } catch (e) { return null; }
+}
+
+// Возвращает { name, tracks: [{ title, artist, durationMs }], total, fetchedAt }
+async function fetchSpotifyList(type, id) {
+    const cacheKey = `${type}:${id}`;
+    const cached = spotifyCache.playlists[cacheKey];
+    if (cached && Date.now() - cached.fetchedAt < SPOTIFY_PLAYLIST_TTL_MS) return cached;
+
+    const res = await fetch(`https://open.spotify.com/embed/${type}/${id}`, { headers: SPOTIFY_HEADERS, signal: AbortSignal.timeout(20000) });
+    if (!res.ok) throw new Error(`Spotify ответил кодом ${res.status}`);
+    const html = await res.text();
+    const m = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
+    if (!m) throw new Error('на странице Spotify нет данных плеера');
+    const data = JSON.parse(m[1]);
+
+    let name = 'Spotify';
+    let rawTracks = [];
+    const holder = findNode(data, (n) => Array.isArray(n.trackList));
+    if (holder) {
+        name = holder.name || holder.title || name;
+        rawTracks = holder.trackList;
+    } else if (type === 'track') {
+        const t = findNode(data, (n) => typeof n.title === 'string' && (n.subtitle || n.artists) && n.duration);
+        if (t) {
+            name = t.title;
+            rawTracks = [{ title: t.title, subtitle: t.subtitle || (t.artists || []).map(a => a.name).join(', '), duration: t.duration }];
+        }
+    }
+
+    const tracks = rawTracks
+        .map(t => ({
+            title: String(t.title || t.name || '').replace(/\u00a0/g, ' ').trim(),
+            artist: String(t.subtitle || '').replace(/\u00a0/g, ' ').trim(),
+            durationMs: normDuration(t.duration)
+        }))
+        .filter(t => t.title);
+
+    const total = type === 'track' ? 1 : await fetchSpotifyTotal(type, id);
+    const result = { name: String(name), tracks, total, fetchedAt: Date.now() };
+    if (tracks.length) { spotifyCache.playlists[cacheKey] = result; saveSpotifyCache(); }
+    return result;
+}
+
+// ---- подбор лучшего видео на YouTube ----
+const BAD_WORDS = ['cover', 'karaoke', 'instrumental', 'nightcore', 'sped up', 'slowed', 'reverb', '8d', 'remix', 'live',
+    'acoustic', 'mashup', 'tribute', 'reaction', 'tutorial', 'lesson', 'кавер', 'караоке', 'ремикс'];
+
+function scoreCandidate(track, wanted, index) {
+    const info = track.info;
+    const hay = normText(`${info.title} ${info.author}`);
+    const titleNorm = normText(wanted.title);
+    let score = 0;
+
+    const tTokens = titleNorm.split(' ').filter(w => w.length > 1);
+    if (tTokens.length) score += 4 * (tTokens.filter(w => hay.includes(w)).length / tTokens.length);
+
+    const aTokens = normText((wanted.artist || '').split(',')[0]).split(' ').filter(w => w.length > 1);
+    if (aTokens.length) score += 3 * (aTokens.filter(w => hay.includes(w)).length / aTokens.length);
+
+    if (wanted.durationMs && info.duration) {
+        const diff = Math.abs(info.duration - wanted.durationMs) / 1000;
+        if (diff <= 3) score += 6;
+        else if (diff <= 8) score += 4;
+        else if (diff <= 15) score += 2;
+        else if (diff > 30) score -= Math.min(10, diff / 10);
+    }
+    if (info.isStream) score -= 50;
+    for (const w of BAD_WORDS) {
+        if (hasWord(hay, w) && !hasWord(titleNorm, w)) score -= 5;
+    }
+    if (/ - topic$/i.test(info.author || '')) score += 2; // автоматические «официальные» каналы исполнителей
+    score -= index * 0.3;
+    return score;
+}
+
+function pickBestMatch(tracks, wanted) {
+    let best = null, bestScore = -Infinity;
+    tracks.slice(0, 8).forEach((t, i) => {
+        const s = scoreCandidate(t, wanted, i);
+        if (s > bestScore) { best = t; bestScore = s; }
+    });
+    return bestScore >= 3 ? best : null;
+}
+
+async function resolveSpotifyTrack(player, wanted, userId) {
+    const key = `${normText(wanted.artist)}|${normText(wanted.title)}|${Math.round((wanted.durationMs || 0) / 5000)}`;
+    const cachedUri = spotifyCache.resolved[key];
+    if (cachedUri) {
+        try {
+            const r = await player.search({ query: cachedUri }, { id: userId });
+            if (r && r.loadType !== 'error' && r.tracks && r.tracks.length) return r.tracks[0];
+        } catch (e) { /* пересоберём ниже */ }
+        delete spotifyCache.resolved[key];
+    }
+
+    const q = `${(wanted.artist || '').split(',')[0]} ${wanted.title}`.trim();
+    for (const source of ['ytmsearch', 'ytsearch']) {
+        try {
+            const r = await player.search({ query: q, source }, { id: userId });
+            if (r && r.loadType !== 'error' && r.tracks && r.tracks.length) {
+                const best = pickBestMatch(r.tracks, wanted);
+                if (best) {
+                    if (best.info.uri) { spotifyCache.resolved[key] = best.info.uri; saveSpotifyCache(); }
+                    return best;
+                }
+            }
+        } catch (e) {
+            console.warn('Spotify→YouTube: ошибка поиска', q, e.message || e);
+        }
+    }
+    return null;
+}
+
+function cancelSpotifyJob() {
+    if (global.spotifyJob && !global.spotifyJob.done) global.spotifyJob.cancelled = true;
+}
+
+async function notifyMusicChannel(text) {
+    try {
+        const ch = await client.channels.fetch(musicPanelChannelId());
+        if (ch && ch.send) await ch.send(String(text).slice(0, 1900));
+    } catch (e) { /* канал недоступен — не страшно */ }
+}
+
+async function enqueueSpotify(query, userId, player) {
+    const m = query.match(SPOTIFY_URL_RE);
+    const type = m[1].toLowerCase();
+    const id = m[2];
+
+    if (global.spotifyJob && !global.spotifyJob.done) {
+        return { error: '⏳ Уже идёт конвертация другого плейлиста Spotify — дождись окончания или останови её командой `!stop`.' };
+    }
+
+    let list;
+    try {
+        list = await fetchSpotifyList(type, id);
+    } catch (e) {
+        console.warn('Spotify: не удалось прочитать список:', e.message || e);
+        return { error: '❌ Не получилось прочитать ссылку Spotify (плейлист закрытый или Spotify изменил страницу).' };
+    }
+    if (!list.tracks.length) return { error: 'В этой ссылке Spotify не нашлось треков 🤷' };
+
+    // одиночный трек — быстро и сразу
+    if (type === 'track') {
+        const track = await resolveSpotifyTrack(player, list.tracks[0], userId);
+        if (!track) return { error: 'Не нашёл этот трек на YouTube 😕' };
+        player.queue.add(track);
+        if (!player.playing && !player.paused) await player.play();
+        return { title: track.info.title, player };
+    }
+
+    const job = { cancelled: false, done: false };
+    global.spotifyJob = job;
+    const truncated = list.total && list.total > list.tracks.length ? list.total : null;
+
+    // конвертация идёт в фоне, чтобы первый трек заиграл сразу
+    (async () => {
+        let added = 0;
+        const missing = [];
+        for (const want of list.tracks) {
+            if (job.cancelled) break;
+            try {
+                const track = await resolveSpotifyTrack(player, want, userId);
+                if (job.cancelled) break;
+                if (track) {
+                    player.queue.add(track);
+                    added++;
+                    if (!player.playing && !player.paused) await player.play();
+                } else {
+                    missing.push(`${want.artist} — ${want.title}`);
+                }
+            } catch (e) {
+                console.warn('Spotify→YouTube: сбой на треке', want.title, e.message || e);
+                missing.push(`${want.artist} — ${want.title}`);
+            }
+            await sleep(250);
+        }
+        job.done = true;
+        if (job.cancelled) return;
+
+        let text = `✅ Spotify «${list.name}»: добавлено **${added}** из ${list.tracks.length}.`;
+        if (missing.length) {
+            text += `\n❌ Не нашлось на YouTube (${missing.length}):\n` + missing.slice(0, 10).map(x => `• ${x}`).join('\n');
+            if (missing.length > 10) text += `\n…и ещё ${missing.length - 10}`;
+        }
+        if (truncated) text += `\nℹ️ Spotify отдаёт только первые ${list.tracks.length} из ${truncated} треков.`;
+        await notifyMusicChannel(text);
+    })().catch((e) => { job.done = true; console.error('Ошибка конвертации Spotify:', e); });
+
+    const countText = `${list.tracks.length} ${ruPlural(list.tracks.length, 'трек', 'трека', 'треков')}`;
+    return {
+        title: `Spotify «${list.name}» (${countText})`,
+        message: `🎧 Spotify «${list.name}»: ${countText}${truncated ? ` (в плейлисте ${truncated}, Spotify отдаёт только первые ${list.tracks.length})` : ''}. ` +
+            'Конвертирую в очередь через YouTube: первый трек скоро заиграет, остальные добавляются по порядку.',
+        player
+    };
 }
 
 // ==== ПАНЕЛЬ ПЛЕЕРА (embed + кнопки) ====
@@ -2238,6 +2491,7 @@ async function handleMusicButton(interaction) {
 
     if (action === 'stop') {
         await interaction.deferUpdate();
+        cancelSpotifyJob();
         await p.stopPlaying(true, false);
         await p.setRepeatMode('off');
         setIdlePresence();
@@ -2246,6 +2500,7 @@ async function handleMusicButton(interaction) {
     }
 
     if (action === 'clear') {
+        cancelSpotifyJob();
         await p.queue.splice(0, p.queue.tracks.length);
         return interaction.update(buildMusicPanel(p));
     }
@@ -2263,7 +2518,7 @@ async function handleMusicModal(interaction) {
     await interaction.deferReply({ ephemeral: true });
     if (interaction.channelId) global.musicChannelId = interaction.channelId;
     const r = await lavaEnqueue(query, userId);
-    await interaction.editReply(r.error ? r.error : `🎵 Добавлено: ${r.title}`);
+    await interaction.editReply(r.error ? r.error : (r.message || `🎵 Добавлено: ${r.title}`));
 }
 
 client.on('interactionCreate', async (interaction) => {
@@ -2300,7 +2555,7 @@ async function handleLavalinkCommand(message, cmd) {
                 return;
             }
             const r = await lavaEnqueue(args, userId);
-            await message.reply(r.error ? r.error : `🎵 Добавлено в очередь: ${r.title}`);
+            await message.reply(r.error ? r.error : (r.message || `🎵 Добавлено в очередь: ${r.title}`));
             return;
         }
 
@@ -2450,6 +2705,7 @@ async function handleLavalinkCommand(message, cmd) {
                 await p.stopPlaying(true, false);
                 await p.setRepeatMode('off');
             }
+            cancelSpotifyJob();
             setIdlePresence();
             await deleteMusicPanel();
             await message.reply('⏹ Останавливаю музыку');
