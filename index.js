@@ -2210,6 +2210,8 @@ async function enqueueSpotify(query, userId, player) {
     const job = { cancelled: false, done: false };
     global.spotifyJob = job;
     const truncated = list.total && list.total > list.tracks.length ? list.total : null;
+    // Spotify отдаёт максимум 100 треков; если счётчика нет, но список ровно из 100 — вероятно, это срез
+    const maybeCut = !truncated && list.tracks.length >= 100;
 
     // конвертация идёт в фоне, чтобы первый трек заиграл сразу
     (async () => {
@@ -2242,13 +2244,14 @@ async function enqueueSpotify(query, userId, player) {
             if (missing.length > 10) text += `\n…и ещё ${missing.length - 10}`;
         }
         if (truncated) text += `\nℹ️ Spotify отдаёт только первые ${list.tracks.length} из ${truncated} треков.`;
+        else if (maybeCut) text += '\nℹ️ Spotify отдаёт максимум 100 треков за раз. Если в плейлисте их больше, остальные не загрузились: разбей плейлист на части по 100 и кинь ссылки по очереди.';
         await notifyMusicChannel(text);
     })().catch((e) => { job.done = true; console.error('Ошибка конвертации Spotify:', e); });
 
     const countText = `${list.tracks.length} ${ruPlural(list.tracks.length, 'трек', 'трека', 'треков')}`;
     return {
         title: `Spotify «${list.name}» (${countText})`,
-        message: `🎧 Spotify «${list.name}»: ${countText}${truncated ? ` (в плейлисте ${truncated}, Spotify отдаёт только первые ${list.tracks.length})` : ''}. ` +
+        message: `🎧 Spotify «${list.name}»: ${countText}${truncated ? ` (в плейлисте ${truncated}, Spotify отдаёт только первые ${list.tracks.length})` : (maybeCut ? ' (Spotify отдаёт максимум 100 — если в плейлисте больше, остальные не загрузятся)' : '')}. ` +
             'Конвертирую в очередь через YouTube: первый трек скоро заиграет, остальные добавляются по порядку.',
         player
     };
